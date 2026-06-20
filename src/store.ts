@@ -44,6 +44,10 @@ interface Appointment {
   endTime: string
   type: 'normal' | 'vip' | 'emergency' | 'followup'
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
+  reminderStatus: 'pending' | 'reminded' | 'no_show' | 'rescheduled'
+  reminderTime?: string | null
+  noShowReason?: string | null
+  reminderResult?: string | null
   queueId: number | null
   createdAt: string
   previousQueueId?: number | null
@@ -92,12 +96,15 @@ interface AppState {
   updateChair: (id: number, name: string, location: string) => Promise<void>
   updateChairStatus: (id: number, status: string) => Promise<void>
 
-  fetchAppointments: (date?: string, chairId?: number) => Promise<void>
+  fetchAppointments: (date?: string, chairId?: number, fetchAll?: boolean) => Promise<void>
   fetchFollowups: () => Promise<void>
   createAppointment: (chairId: number, patientName: string, patientPhone: string, date: string, startTime: string, endTime: string, type: string) => Promise<void>
   cancelAppointment: (id: number) => Promise<void>
   completeAppointment: (id: number) => Promise<void>
   createFollowup: (queueId: number, chairId: number, date: string, startTime: string, endTime: string) => Promise<void>
+  markReminded: (id: number, result?: string) => Promise<void>
+  markNoShow: (id: number, reason?: string) => Promise<void>
+  markRescheduled: (id: number, result?: string) => Promise<void>
 
   checkConflict: (chairId: number, date: string, startTime: string, endTime: string, excludeId?: number) => Promise<{ hasConflict: boolean; conflicts: ConflictDetail[]; suggestions: TimeSlot[] }>
   getSuggestions: (chairId: number, date: string, duration: number) => Promise<TimeSlot[]>
@@ -165,6 +172,10 @@ function mapAppointment(raw: any): Appointment {
     endTime: raw.end_time || raw.endTime,
     type: raw.type,
     status: raw.status,
+    reminderStatus: raw.reminder_status || raw.reminderStatus || 'pending',
+    reminderTime: raw.reminder_time ?? raw.reminderTime,
+    noShowReason: raw.no_show_reason ?? raw.noShowReason,
+    reminderResult: raw.reminder_result ?? raw.reminderResult,
     queueId: raw.queue_id ?? raw.queueId,
     createdAt: raw.created_at || raw.createdAt,
     previousQueueId: raw.previous_queue_id ?? raw.previousQueueId,
@@ -351,11 +362,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchAppointments: async (date, chairId) => {
+  fetchAppointments: async (date, chairId, fetchAll = false) => {
     set({ loading: true, error: null })
     try {
       const params = new URLSearchParams()
-      if (date) params.set('date', date)
+      if (!fetchAll && date) params.set('date', date)
       if (chairId) params.set('chairId', String(chairId))
       const query = params.toString()
       const url = `/api/appointments${query ? `?${query}` : ''}`
@@ -392,7 +403,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }),
       })
       set({ loading: false })
-      await get().fetchAppointments(date, chairId)
+      await get().fetchAppointments(undefined, undefined, true)
       if (type === 'followup') {
         await get().fetchFollowups()
       }
@@ -436,6 +447,54 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e: any) {
       set({ error: e.message, loading: false })
       throw e
+    }
+  },
+
+  markReminded: async (id, result) => {
+    set({ loading: true, error: null })
+    try {
+      const body: any = {}
+      if (result !== undefined) body.result = result
+      await apiFetch(`/api/appointments/${id}/reminded`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
+    }
+  },
+
+  markNoShow: async (id, reason) => {
+    set({ loading: true, error: null })
+    try {
+      const body: any = {}
+      if (reason !== undefined) body.reason = reason
+      await apiFetch(`/api/appointments/${id}/no-show`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
+    }
+  },
+
+  markRescheduled: async (id, result) => {
+    set({ loading: true, error: null })
+    try {
+      const body: any = {}
+      if (result !== undefined) body.result = result
+      await apiFetch(`/api/appointments/${id}/rescheduled`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
     }
   },
 

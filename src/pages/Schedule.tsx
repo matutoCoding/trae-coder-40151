@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, Stethoscope, BarChart3 } from 'lucide-react'
+import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Stethoscope, BarChart3 } from 'lucide-react'
 import { useAppStore, type Appointment, type DentalChair } from '@/store'
 
 function add30Minutes(time: string): string {
@@ -101,6 +101,44 @@ function getLoadStyle(minutes: number) {
   return 'bg-success/10 text-success'
 }
 
+interface AvailableSlot {
+  startTime: string
+  endTime: string
+}
+
+function getAvailableSlots(chairAppointments: Appointment[], date: string): { morning: AvailableSlot[]; afternoon: AvailableSlot[] } {
+  const dayApts = chairAppointments.filter(a => a.appointmentDate === date && a.status !== 'cancelled')
+  const allSlots = getTimeSlots()
+  const busySlots = new Set<string>()
+
+  dayApts.forEach(apt => {
+    const startMin = timeToMinutes(apt.startTime)
+    const endMin = timeToMinutes(apt.endTime)
+    allSlots.forEach(slot => {
+      const slotMin = timeToMinutes(slot)
+      if (slotMin >= startMin && slotMin < endMin) {
+        busySlots.add(slot)
+      }
+    })
+  })
+
+  const freeSlots = allSlots.filter(slot => !busySlots.has(slot) && timeToMinutes(slot) < timeToMinutes('18:00'))
+
+  const morning: AvailableSlot[] = []
+  const afternoon: AvailableSlot[] = []
+
+  freeSlots.forEach(slot => {
+    const slotItem = { startTime: slot, endTime: add30Minutes(slot) }
+    if (timeToMinutes(slot) < timeToMinutes('12:00')) {
+      morning.push(slotItem)
+    } else {
+      afternoon.push(slotItem)
+    }
+  })
+
+  return { morning, afternoon }
+}
+
 export default function Schedule() {
   const {
     chairs,
@@ -133,6 +171,7 @@ export default function Schedule() {
   })
   const [timeError, setTimeError] = useState<string | null>(null)
   const [formSubmitError, setFormSubmitError] = useState<string | null>(null)
+  const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set())
 
   const timeSlots = useMemo(() => getTimeSlots(), [])
   const availableChairs = useMemo(() => chairs.filter(c => c.status !== 'maintenance'), [chairs])
@@ -153,7 +192,7 @@ export default function Schedule() {
     if (viewMode === 'day') {
       fetchAppointments(selectedDate)
     } else {
-      fetchAppointments()
+      fetchAppointments(undefined, undefined, true)
     }
   }, [fetchAppointments, selectedDate, viewMode])
 
@@ -164,7 +203,7 @@ export default function Schedule() {
     }
   }
 
-  const openFormForCell = (chair: DentalChair, date: string, time?: string) => {
+  const openFormForCell = (chair: DentalChair, date: string, time?: string, endTime?: string) => {
     const startTime = time && timeToMinutes(time) >= timeToMinutes('08:00') ? time : '09:00'
     setForm({
       chairId: chair.id,
@@ -172,12 +211,24 @@ export default function Schedule() {
       patientPhone: '',
       date,
       startTime,
-      endTime: add30Minutes(startTime),
+      endTime: endTime || add30Minutes(startTime),
       type: 'normal',
     })
     setFormSubmitError(null)
     clearError()
     setShowForm(true)
+  }
+
+  const toggleExpand = (key: string) => {
+    setExpandedSlots(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
   }
 
   const handleCellClick = (chair: DentalChair, time: string) => {
@@ -344,6 +395,7 @@ export default function Schedule() {
       <div className="flex flex-wrap gap-3">
         {availableChairs.map((chair) => {
           const stats = getChairStats(chair)
+          const chairAppointments = appointments.filter(a => a.chairId === chair.id)
           return (
             <div key={chair.id} className="flex-1 min-w-[260px] bg-gray-50 rounded-xl p-3">
               <div className="flex items-center gap-1.5 mb-2">
@@ -352,15 +404,71 @@ export default function Schedule() {
                 <span className="text-xs text-gray-500">· {chair.location}</span>
               </div>
               <div className="grid grid-cols-7 gap-1">
-                {stats.map((stat, idx) => (
-                  <div key={stat.date} className={`rounded-lg p-1.5 text-center ${getLoadStyle(stat.bookedMinutes)}`}>
-                    <div className="text-[10px] font-medium mb-0.5">{weekDayLabels[idx]}</div>
-                    <div className="text-xs font-bold">{stat.count}单</div>
-                    <div className="text-[10px]">{stat.bookedMinutes}分</div>
-                    <div className="text-[10px] opacity-75">闲{stat.freeMinutes}</div>
-                    {stat.count > 0 && <div className="text-[10px]">复诊{stat.followupRatio}%</div>}
-                  </div>
-                ))}
+                {stats.map((stat, idx) => {
+                  const expandKey = `${chair.id}-${stat.date}`
+                  const isExpanded = expandedSlots.has(expandKey)
+                  const { morning, afternoon } = getAvailableSlots(chairAppointments, stat.date)
+                  return (
+                    <div key={stat.date} className="flex flex-col">
+                      <div
+                        onClick={() => toggleExpand(expandKey)}
+                        className={`rounded-lg p-1.5 text-center cursor-pointer hover:opacity-80 transition-opacity ${getLoadStyle(stat.bookedMinutes)}`}
+                      >
+                        <div className="flex items-center justify-center gap-0.5">
+                          <span className="text-[10px] font-medium">{weekDayLabels[idx]}</span>
+                          {isExpanded ? (
+                            <ChevronUp className="w-3 h-3 opacity-70" />
+                          ) : (
+                            <ChevronDown className="w-3 h-3 opacity-70" />
+                          )}
+                        </div>
+                        <div className="text-xs font-bold">{stat.count}单</div>
+                        <div className="text-[10px]">{stat.bookedMinutes}分</div>
+                        <div className="text-[10px] opacity-75">闲{stat.freeMinutes}</div>
+                        {stat.count > 0 && <div className="text-[10px]">复诊{stat.followupRatio}%</div>}
+                      </div>
+                      {isExpanded && (
+                        <div className="mt-1 p-2 bg-white rounded-lg border border-gray-200 space-y-2 animate-fade-in">
+                          {morning.length > 0 && (
+                            <div>
+                              <div className="text-[10px] font-medium text-gray-600 mb-1">上午 08:00-12:00</div>
+                              <div className="flex flex-wrap gap-1">
+                                {morning.map((slot) => (
+                                  <button
+                                    key={`m-${slot.startTime}`}
+                                    onClick={(e) => { e.stopPropagation(); openFormForCell(chair, stat.date, slot.startTime, slot.endTime) }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success hover:bg-success hover:text-white transition-colors"
+                                  >
+                                    {slot.startTime}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {afternoon.length > 0 && (
+                            <div>
+                              <div className="text-[10px] font-medium text-gray-600 mb-1">下午 12:00-18:00</div>
+                              <div className="flex flex-wrap gap-1">
+                                {afternoon.map((slot) => (
+                                  <button
+                                    key={`a-${slot.startTime}`}
+                                    onClick={(e) => { e.stopPropagation(); openFormForCell(chair, stat.date, slot.startTime, slot.endTime) }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success hover:bg-success hover:text-white transition-colors"
+                                  >
+                                    {slot.startTime}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {morning.length === 0 && afternoon.length === 0 && (
+                            <div className="text-[10px] text-gray-400 text-center py-1">无可预约时段</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )

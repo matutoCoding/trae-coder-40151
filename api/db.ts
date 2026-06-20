@@ -58,12 +58,40 @@ export function getDb(): Database.Database {
       end_time TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'normal' CHECK(type IN ('normal', 'vip', 'emergency', 'followup')),
       status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
+      reminder_status TEXT NOT NULL DEFAULT 'pending' CHECK(reminder_status IN ('pending', 'reminded', 'no_show', 'rescheduled')),
+      reminder_time TEXT,
+      no_show_reason TEXT,
+      reminder_result TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_appointments_chair_date ON appointments(chair_id, appointment_date);
     CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
   `)
+
+  try {
+    db.exec(`
+      ALTER TABLE appointments ADD COLUMN reminder_status TEXT DEFAULT 'pending' CHECK(reminder_status IN ('pending', 'reminded', 'no_show', 'rescheduled'));
+    `)
+  } catch {}
+
+  try {
+    db.exec(`
+      ALTER TABLE appointments ADD COLUMN reminder_time TEXT;
+    `)
+  } catch {}
+
+  try {
+    db.exec(`
+      ALTER TABLE appointments ADD COLUMN no_show_reason TEXT;
+    `)
+  } catch {}
+
+  try {
+    db.exec(`
+      ALTER TABLE appointments ADD COLUMN reminder_result TEXT;
+    `)
+  } catch {}
 
   const chairCount = db.prepare('SELECT COUNT(*) as count FROM dental_chairs').get() as { count: number }
   if (chairCount.count === 0) {

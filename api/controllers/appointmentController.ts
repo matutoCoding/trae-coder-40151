@@ -117,3 +117,48 @@ export function createFollowup(req: Request, res: Response): void {
     res.status(409).json({ success: false, error: error.message })
   }
 }
+
+export function markReminded(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    const { result } = req.body
+    if (!id) {
+      res.status(400).json({ success: false, error: '预约ID为必填项' })
+      return
+    }
+    appointmentService.markReminded(id, result)
+    res.json({ success: true })
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+export function markNoShow(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    const { reason } = req.body
+    if (!id) {
+      res.status(400).json({ success: false, error: '预约ID为必填项' })
+      return
+    }
+    appointmentService.markNoShow(id, reason)
+    res.json({ success: true })
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+export function markRescheduled(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    const { result } = req.body
+    if (!id) {
+      res.status(400).json({ success: false, error: '预约ID为必填项' })
+      return
+    }
+    appointmentService.markRescheduled(id, result)
+    res.json({ success: true })
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}

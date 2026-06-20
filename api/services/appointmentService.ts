@@ -129,3 +129,22 @@ export function createFollowup(
     previousQueueId
   )
 }
+
+export function markReminded(id: number, result?: string) {
+  const appointment = appointmentRepo.getAppointmentById(id)
+  if (!appointment) throw new Error('预约不存在')
+  const now = new Date().toISOString()
+  return appointmentRepo.updateAppointmentReminder(id, 'reminded', now, result)
+}
+
+export function markNoShow(id: number, reason?: string) {
+  const appointment = appointmentRepo.getAppointmentById(id)
+  if (!appointment) throw new Error('预约不存在')
+  return appointmentRepo.updateAppointmentReminder(id, 'no_show', undefined, undefined, reason)
+}
+
+export function markRescheduled(id: number, result?: string) {
+  const appointment = appointmentRepo.getAppointmentById(id)
+  if (!appointment) throw new Error('预约不存在')
+  return appointmentRepo.updateAppointmentReminder(id, 'rescheduled', undefined, result)
+}

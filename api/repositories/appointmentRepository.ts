@@ -11,6 +11,10 @@ export interface Appointment {
   type: 'normal' | 'vip' | 'emergency' | 'followup'
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
   created_at: string
+  reminder_status?: 'pending' | 'reminded' | 'no_show' | 'rescheduled'
+  reminder_time?: string | null
+  no_show_reason?: string | null
+  reminder_result?: string | null
 }
 
 export interface AppointmentWithDetails extends Appointment {
@@ -136,4 +140,31 @@ export function deleteAppointment(id: number): boolean {
   const db = getDb()
   const result = db.prepare('DELETE FROM appointments WHERE id = ?').run(id)
   return result.changes > 0
+}
+
+export function updateAppointmentReminder(
+  id: number,
+  reminderStatus: string,
+  reminderTime?: string,
+  reminderResult?: string,
+  noShowReason?: string
+): Appointment | undefined {
+  const db = getDb()
+  const fields: string[] = ['reminder_status = ?']
+  const params: any[] = [reminderStatus]
+  if (reminderTime !== undefined) {
+    fields.push('reminder_time = ?')
+    params.push(reminderTime)
+  }
+  if (reminderResult !== undefined) {
+    fields.push('reminder_result = ?')
+    params.push(reminderResult)
+  }
+  if (noShowReason !== undefined) {
+    fields.push('no_show_reason = ?')
+    params.push(noShowReason)
+  }
+  params.push(id)
+  db.prepare(`UPDATE appointments SET ${fields.join(', ')} WHERE id = ?`).run(...params)
+  return getAppointmentById(id)
 }
