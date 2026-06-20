@@ -62,6 +62,24 @@ export function completeAppointment(req: Request, res: Response): void {
   }
 }
 
+export function getAppointmentById(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) {
+      res.status(400).json({ success: false, error: '预约ID为必填项' })
+      return
+    }
+    const appointment = appointmentService.getAppointmentById(id)
+    res.json({ success: true, data: appointment })
+  } catch (error: any) {
+    if (error.message === '预约不存在') {
+      res.status(404).json({ success: false, error: error.message })
+    } else {
+      res.status(500).json({ success: false, error: error.message })
+    }
+  }
+}
+
 export function createFollowup(req: Request, res: Response): void {
   try {
     const { previousQueueId, chairId, date, startTime, endTime } = req.body

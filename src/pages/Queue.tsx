@@ -1,11 +1,49 @@
 import { useEffect, useState } from 'react'
-import { Bell, UserPlus, PhoneCall, X, User, Plus } from 'lucide-react'
-import { useAppStore } from '@/store'
+import { Bell, UserPlus, PhoneCall, X, User, Plus, Calendar, CheckCircle, SkipForward } from 'lucide-react'
+import { useAppStore, type QueueEntry } from '@/store'
+
+function addDays(date: Date, days: number): string {
+  const result = new Date(date)
+  result.setDate(result.getDate() + days)
+  return result.toISOString().split('T')[0]
+}
+
+function roundToNext30Minutes(date: Date): string {
+  const minutes = date.getMinutes()
+  const rounded = Math.ceil(minutes / 30) * 30
+  const hours = date.getHours() + Math.floor(rounded / 60)
+  const mins = rounded % 60
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+}
+
+function add30Minutes(time: string): string {
+  const [hours, minutes] = time.split(':').map(Number)
+  const totalMinutes = hours * 60 + minutes + 30
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
 
 export default function Queue() {
-  const { queue, servingList, chairs, fetchQueue, fetchServingList, fetchChairs, takeNumber, callNext, callSpecific, completeService, cancelEntry } = useAppStore()
+  const { queue, servingList, chairs, fetchQueue, fetchServingList, fetchChairs, fetchAppointments, takeNumber, callNext, callSpecific, completeService, cancelEntry, createFollowup } = useAppStore()
   const [showTakeNumber, setShowTakeNumber] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '', type: 'normal' })
+  const [completeModal, setCompleteModal] = useState<QueueEntry | null>(null)
+  const [showFollowup, setShowFollowup] = useState(false)
+  const [followupForm, setFollowupForm] = useState({
+    patientName: '',
+    patientPhone: '',
+    date: '',
+    chairId: 0,
+    startTime: '',
+    endTime: '',
+  })
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (message: string) => {
+    setToast(message)
+    setTimeout(() => setToast(null), 2000)
+  }
 
   useEffect(() => {
     fetchQueue()
@@ -31,8 +69,49 @@ export default function Queue() {
     await callSpecific(id, chairId)
   }
 
-  const handleComplete = async (id: number) => {
-    await completeService(id)
+  const handleCompleteClick = (entry: QueueEntry) => {
+    setCompleteModal(entry)
+  }
+
+  const handleDirectComplete = async () => {
+    if (!completeModal) return
+    await completeService(completeModal.id)
+    setCompleteModal(null)
+    showToast('就诊已完成')
+  }
+
+  const handleCompleteWithFollowup = async () => {
+    if (!completeModal) return
+    await completeService(completeModal.id)
+
+    const now = new Date()
+    const defaultChair = chairs.find((c) => c.id === completeModal.chairId) || chairs[0]
+
+    setFollowupForm({
+      patientName: completeModal.patientName,
+      patientPhone: completeModal.patientPhone,
+      date: addDays(now, 7),
+      chairId: defaultChair?.id || 0,
+      startTime: roundToNext30Minutes(now),
+      endTime: add30Minutes(roundToNext30Minutes(now)),
+    })
+
+    setCompleteModal(null)
+    setShowFollowup(true)
+  }
+
+  const handleCreateFollowup = async () => {
+    if (!completeModal || !followupForm.chairId) return
+    await createFollowup(
+      completeModal.id,
+      followupForm.chairId,
+      followupForm.date,
+      followupForm.startTime,
+      followupForm.endTime,
+    )
+    await fetchAppointments()
+    setShowFollowup(false)
+    showToast('复诊预约成功')
   }
 
   const handleCancel = async (id: number) => {
@@ -41,6 +120,155 @@ export default function Queue() {
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {toast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-success text-white rounded-lg shadow-lg text-sm font-medium animate-slide-up">
+          {toast}
+        </div>
+      )}
+
+      {completeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-slide-up">
+            <h3 className="text-lg font-bold text-[var(--color-text)] mb-2">完成就诊</h3>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+              患者 <span className="font-medium text-[var(--color-text)]">{completeModal.patientName}</span> 的就诊已完成？
+            </p>
+            <p className="text-sm font-medium text-[var(--color-text)] mb-4">是否需要预约复诊？</p>
+            <div className="space-y-2">
+              <button
+                onClick={handleCompleteWithFollowup}
+                className="w-full py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+              >
+                <Calendar className="w-4 h-4 inline mr-1.5" />
+                预约复诊
+              </button>
+              <button
+                onClick={handleDirectComplete}
+                className="w-full py-2.5 bg-gray-100 text-[var(--color-text-secondary)] rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+              >
+                <CheckCircle className="w-4 h-4 inline mr-1.5" />
+                直接完成
+              </button>
+              <button
+                onClick={() => setCompleteModal(null)}
+                className="w-full py-2.5 text-[var(--color-text-secondary)] text-sm hover:text-[var(--color-text)] transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFollowup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-slide-up max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-[var(--color-text)] mb-4 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-success" />
+              预约复诊
+            </h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">患者姓名</label>
+                <input
+                  type="text"
+                  value={followupForm.patientName}
+                  readOnly
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm bg-gray-50 text-[var(--color-text-secondary)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">联系电话</label>
+                <input
+                  type="text"
+                  value={followupForm.patientPhone}
+                  readOnly
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm bg-gray-50 text-[var(--color-text-secondary)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-success-50 text-success mr-2">复诊</span>
+                  就诊类型
+                </label>
+                <div className="flex items-center">
+                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-success-50 text-success">
+                    复诊预约
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">复诊日期</label>
+                <input
+                  type="date"
+                  value={followupForm.date}
+                  onChange={(e) => setFollowupForm({ ...followupForm, date: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">椅位</label>
+                <select
+                  value={followupForm.chairId}
+                  onChange={(e) => setFollowupForm({ ...followupForm, chairId: Number(e.target.value) })}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                >
+                  <option value={0}>请选择椅位</option>
+                  {chairs.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">开始时间</label>
+                  <input
+                    type="time"
+                    value={followupForm.startTime}
+                    onChange={(e) => {
+                      const newStart = e.target.value
+                      const newEnd = add30Minutes(newStart)
+                      setFollowupForm({ ...followupForm, startTime: newStart, endTime: newEnd })
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">结束时间</label>
+                  <input
+                    type="time"
+                    value={followupForm.endTime}
+                    onChange={(e) => setFollowupForm({ ...followupForm, endTime: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 mt-6">
+              <button
+                onClick={handleCreateFollowup}
+                className="w-full py-2.5 bg-success text-white rounded-lg text-sm font-medium hover:bg-success-light transition-colors"
+              >
+                <CheckCircle className="w-4 h-4 inline mr-1.5" />
+                确认预约复诊
+              </button>
+              <button
+                onClick={() => {
+                  setShowFollowup(false)
+                  setCompleteModal(null)
+                }}
+                className="w-full py-2.5 bg-gray-100 text-[var(--color-text-secondary)] rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+              >
+                <SkipForward className="w-4 h-4 inline mr-1.5" />
+                跳过
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bell className="w-6 h-6 text-primary" />
@@ -150,7 +378,7 @@ export default function Queue() {
           <p className="text-sm text-[var(--color-text-secondary)] text-center py-8">暂无等待患者</p>
         ) : (
           <div className="space-y-2">
-            {waitingList.map((entry, index) => (
+            {waitingList.map((entry) => (
               <div
                 key={entry.id}
                 className="flex items-center justify-between py-3 px-4 rounded-xl border border-[var(--color-border)] hover:shadow-sm transition-all duration-200"
@@ -219,7 +447,7 @@ export default function Queue() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleComplete(entry.id)}
+                  onClick={() => handleCompleteClick(entry)}
                   className="px-3 py-1.5 text-xs bg-success text-white rounded-lg hover:bg-success-light transition-colors font-medium"
                 >
                   完成就诊

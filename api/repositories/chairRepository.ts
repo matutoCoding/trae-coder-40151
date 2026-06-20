@@ -31,9 +31,22 @@ export function updateChairStatus(id: number, status: string): DentalChair | und
   return getChairById(id)
 }
 
+export function updateChair(id: number, name: string, location: string): DentalChair | undefined {
+  const db = getDb()
+  db.prepare('UPDATE dental_chairs SET name = ?, location = ? WHERE id = ?').run(name, location, id)
+  return getChairById(id)
+}
+
 export function getAvailableChairs(): DentalChair[] {
   const db = getDb()
   return db.prepare("SELECT * FROM dental_chairs WHERE status = 'available' ORDER BY id ASC").all() as DentalChair[]
+}
+
+export function getChairsByStatus(statuses: string[]): DentalChair[] {
+  const db = getDb()
+  const placeholders = statuses.map(() => '?').join(', ')
+  const sql = `SELECT * FROM dental_chairs WHERE status IN (${placeholders}) ORDER BY id ASC`
+  return db.prepare(sql).all(...statuses) as DentalChair[]
 }
 
 export function deleteChair(id: number): boolean {

@@ -19,6 +19,10 @@ export interface AppointmentWithDetails extends Appointment {
   patient_type: string
   chair_name: string
   chair_location: string
+  previous_queue_id?: number | null
+  previous_visit_date?: string | null
+  previous_visit_chair?: string | null
+  previous_visit_type?: string | null
 }
 
 export function createAppointment(
@@ -44,14 +48,41 @@ export function getAppointmentById(id: number): Appointment | undefined {
   return db.prepare('SELECT * FROM appointments WHERE id = ?').get(id) as Appointment | undefined
 }
 
+export function getAppointmentByIdWithDetails(id: number): AppointmentWithDetails | undefined {
+  const db = getDb()
+  const sql = `
+    SELECT a.*, p.name as patient_name, p.phone as patient_phone, p.type as patient_type,
+           c.name as chair_name, c.location as chair_location,
+           a.queue_id as previous_queue_id,
+           prev_q.completed_at as previous_visit_date,
+           prev_c.name as previous_visit_chair,
+           prev_p.type as previous_visit_type
+    FROM appointments a
+    JOIN patients p ON a.patient_id = p.id
+    JOIN dental_chairs c ON a.chair_id = c.id
+    LEFT JOIN queue_entries prev_q ON a.queue_id = prev_q.id
+    LEFT JOIN dental_chairs prev_c ON prev_q.chair_id = prev_c.id
+    LEFT JOIN patients prev_p ON prev_q.patient_id = prev_p.id
+    WHERE a.id = ?
+  `
+  return db.prepare(sql).get(id) as AppointmentWithDetails | undefined
+}
+
 export function getAppointments(date?: string, chairId?: number): AppointmentWithDetails[] {
   const db = getDb()
   let sql = `
     SELECT a.*, p.name as patient_name, p.phone as patient_phone, p.type as patient_type,
-           c.name as chair_name, c.location as chair_location
+           c.name as chair_name, c.location as chair_location,
+           a.queue_id as previous_queue_id,
+           prev_q.completed_at as previous_visit_date,
+           prev_c.name as previous_visit_chair,
+           prev_p.type as previous_visit_type
     FROM appointments a
     JOIN patients p ON a.patient_id = p.id
     JOIN dental_chairs c ON a.chair_id = c.id
+    LEFT JOIN queue_entries prev_q ON a.queue_id = prev_q.id
+    LEFT JOIN dental_chairs prev_c ON prev_q.chair_id = prev_c.id
+    LEFT JOIN patients prev_p ON prev_q.patient_id = prev_p.id
     WHERE 1=1
   `
   const params: any[] = []

@@ -5,6 +5,7 @@ import Queue from "@/pages/Queue";
 import Priority from "@/pages/Priority";
 import Schedule from "@/pages/Schedule";
 import Conflict from "@/pages/Conflict";
+import Chairs from "@/pages/Chairs";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/priority" element={<Priority />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/conflict" element={<Conflict />} />
+          <Route path="/chairs" element={<Chairs />} />
         </Route>
       </Routes>
     </Router>

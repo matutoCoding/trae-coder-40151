@@ -61,10 +61,9 @@ export function callNext(chairId: number) {
 
   const nextPatient = waitingQueue[0]
 
-  const result = db.transaction(() => {
-    const entry = queueRepo.updateQueueStatus(nextPatient.id, 'serving', chairId)
+  db.transaction(() => {
+    queueRepo.updateQueueStatus(nextPatient.id, 'serving', chairId)
     chairRepo.updateChairStatus(chairId, 'occupied')
-    return { entry, chair }
   })()
 
   return {
@@ -116,7 +115,7 @@ export function completeService(id: number) {
     }
   })()
 
-  return queueRepo.getQueueEntryById(id)
+  return queueRepo.getQueueEntryByIdWithDetails(id)
 }
 
 export function cancelEntry(id: number) {
@@ -142,20 +141,35 @@ export function promotePriority(id: number, type: string, targetPosition?: numbe
   if (!entry) throw new Error('排队记录不存在')
   if (entry.status !== 'waiting') throw new Error('只能提升等待中的患者优先级')
 
+  const db = getDb()
   const newPriority = PRIORITY_MAP[type] ?? entry.priority
 
-  if (targetPosition !== undefined) {
-    const waitingQueue = queueRepo.getWaitingQueue()
-    if (targetPosition < 1 || targetPosition > waitingQueue.length) {
-      throw new Error('目标位置无效')
-    }
-    const targetEntry = waitingQueue[targetPosition - 1]
-    queueRepo.updateQueuePriority(id, targetEntry.priority + 1)
-  } else {
-    queueRepo.updateQueuePriority(id, newPriority)
-  }
+  const result = db.transaction(() => {
+    db.prepare('UPDATE patients SET type = ? WHERE id = (SELECT patient_id FROM queue_entries WHERE id = ?)')
+      .run(type, id)
 
-  return queueRepo.getQueueEntryById(id)
+    if (targetPosition !== undefined) {
+      const waitingQueue = queueRepo.getWaitingQueue()
+      if (targetPosition < 1 || targetPosition > waitingQueue.length) {
+        throw new Error('目标位置无效')
+      }
+      const targetEntry = waitingQueue[targetPosition - 1]
+      queueRepo.updateQueuePriority(id, targetEntry.priority + 1)
+    } else {
+      queueRepo.updateQueuePriority(id, newPriority)
+    }
+
+    const updatedEntry = queueRepo.getQueueEntryById(id)
+    const patient = patientRepo.getPatientById(updatedEntry!.patient_id)
+    return {
+      ...updatedEntry,
+      patient_name: patient?.name,
+      patient_phone: patient?.phone,
+      patient_type: patient?.type,
+    }
+  })()
+
+  return result
 }
 
 export function reposition(id: number, newPosition: number) {

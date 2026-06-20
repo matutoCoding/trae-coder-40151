@@ -46,6 +46,10 @@ interface Appointment {
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
   queueId: number | null
   createdAt: string
+  previousQueueId?: number | null
+  previousVisitDate?: string | null
+  previousVisitChair?: string | null
+  previousVisitType?: string | null
 }
 
 interface ConflictDetail {
@@ -84,6 +88,7 @@ interface AppState {
 
   fetchChairs: () => Promise<void>
   createChair: (name: string, location: string) => Promise<void>
+  updateChair: (id: number, name: string, location: string) => Promise<void>
   updateChairStatus: (id: number, status: string) => Promise<void>
 
   fetchAppointments: (date?: string, chairId?: number) => Promise<void>
@@ -94,6 +99,7 @@ interface AppState {
 
   checkConflict: (chairId: number, date: string, startTime: string, endTime: string, excludeId?: number) => Promise<{ hasConflict: boolean; conflicts: ConflictDetail[]; suggestions: TimeSlot[] }>
   getSuggestions: (chairId: number, date: string, duration: number) => Promise<TimeSlot[]>
+  getAppointmentById: (id: number) => Promise<Appointment | null>
 
   clearError: () => void
 }
@@ -159,6 +165,10 @@ function mapAppointment(raw: any): Appointment {
     status: raw.status,
     queueId: raw.queue_id ?? raw.queueId,
     createdAt: raw.created_at || raw.createdAt,
+    previousQueueId: raw.previous_queue_id ?? raw.previousQueueId,
+    previousVisitDate: raw.previous_visit_date ?? raw.previousVisitDate,
+    previousVisitChair: raw.previous_visit_chair ?? raw.previousVisitChair,
+    previousVisitType: raw.previous_visit_type ?? raw.previousVisitType,
   }
 }
 
@@ -310,6 +320,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  updateChair: async (id, name, location) => {
+    set({ loading: true, error: null })
+    try {
+      await apiFetch(`/api/chairs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, location }),
+      })
+      await get().fetchChairs()
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
+    }
+  },
+
   updateChairStatus: async (id, status) => {
     set({ loading: true, error: null })
     try {
@@ -418,6 +441,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e: any) {
       set({ error: e.message, loading: false })
       throw e
+    }
+  },
+
+  getAppointmentById: async (id) => {
+    set({ loading: true, error: null })
+    try {
+      const data = await apiFetch<{ data: any }>(`/api/appointments/${id}`)
+      set({ loading: false })
+      return mapAppointment(data.data)
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
+      return null
     }
   },
 

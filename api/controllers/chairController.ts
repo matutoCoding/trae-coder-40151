@@ -3,7 +3,8 @@ import * as chairService from '../services/chairService.js'
 
 export function getChairs(req: Request, res: Response): void {
   try {
-    const chairs = chairService.getChairs()
+    const status = req.query.status as string | undefined
+    const chairs = chairService.getChairs(status)
     res.json({ success: true, data: chairs })
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message })
@@ -33,6 +34,21 @@ export function updateChairStatus(req: Request, res: Response): void {
       return
     }
     const chair = chairService.updateChairStatus(id, status)
+    res.json({ success: true, data: chair })
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+export function updateChair(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    const { name, location } = req.body
+    if (!id || !name) {
+      res.status(400).json({ success: false, error: '椅位ID和名称为必填项' })
+      return
+    }
+    const chair = chairService.updateChair(id, name, location || '')
     res.json({ success: true, data: chair })
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message })

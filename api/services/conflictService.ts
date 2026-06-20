@@ -8,6 +8,35 @@ export interface ConflictResult {
   status: string
 }
 
+function parseTime(timeStr: string): number {
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+function validateTimeRange(startTime: string, endTime: string) {
+  const start = parseTime(startTime)
+  const end = parseTime(endTime)
+  const workStart = 8 * 60
+  const workEnd = 18 * 60
+
+  if (start < workStart || start >= workEnd) {
+    throw new Error('预约时间必须在工作时间内（08:00-18:00）')
+  }
+  if (end <= workStart || end > workEnd) {
+    throw new Error('预约结束时间必须在工作时间内（08:00-18:00）')
+  }
+  if (end <= start) {
+    throw new Error('结束时间必须晚于开始时间')
+  }
+  const duration = end - start
+  if (duration < 15) {
+    throw new Error('预约时长至少为15分钟')
+  }
+  if (duration > 240) {
+    throw new Error('预约时长不能超过240分钟（4小时）')
+  }
+}
+
 export function checkConflict(
   chairId: number,
   date: string,
@@ -15,6 +44,7 @@ export function checkConflict(
   endTime: string,
   excludeId?: number
 ): ConflictResult[] {
+  validateTimeRange(startTime, endTime)
   const overlapping = appointmentRepo.findOverlappingAppointments(
     chairId, date, startTime, endTime, excludeId
   )
@@ -70,9 +100,4 @@ function formatTime(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60)
   const m = totalMinutes % 60
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-}
-
-function parseTime(timeStr: string): number {
-  const [h, m] = timeStr.split(':').map(Number)
-  return h * 60 + m
 }

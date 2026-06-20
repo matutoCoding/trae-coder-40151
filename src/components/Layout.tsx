@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Bell, Crown, Calendar, ShieldCheck, Cross } from 'lucide-react'
+import { LayoutDashboard, Bell, Crown, Calendar, ShieldCheck, Cross, Settings } from 'lucide-react'
 
 const tabs = [
   { path: '/', label: '仪表盘', icon: LayoutDashboard },
@@ -7,6 +7,7 @@ const tabs = [
   { path: '/priority', label: '优先', icon: Crown },
   { path: '/schedule', label: '排期', icon: Calendar },
   { path: '/conflict', label: '校验', icon: ShieldCheck },
+  { path: '/chairs', label: '设置', icon: Settings },
 ]
 
 export default function Layout() {

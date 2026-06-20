@@ -118,3 +118,15 @@ export function getCompletedByPatient(patientId: number): QueueEntry | undefined
     ORDER BY completed_at DESC LIMIT 1
   `).get(patientId) as QueueEntry | undefined
 }
+
+export function getQueueEntryByIdWithDetails(id: number): QueueEntryWithDetails | undefined {
+  const db = getDb()
+  return db.prepare(`
+    SELECT q.*, p.name as patient_name, p.phone as patient_phone, p.type as patient_type,
+           c.name as chair_name, c.location as chair_location
+    FROM queue_entries q
+    JOIN patients p ON q.patient_id = p.id
+    LEFT JOIN dental_chairs c ON q.chair_id = c.id
+    WHERE q.id = ?
+  `).get(id) as QueueEntryWithDetails | undefined
+}

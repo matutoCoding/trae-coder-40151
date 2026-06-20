@@ -3,6 +3,35 @@ import * as patientRepo from '../repositories/patientRepository.js'
 import * as queueRepo from '../repositories/queueRepository.js'
 import * as conflictService from './conflictService.js'
 
+function parseTime(timeStr: string): number {
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+function validateTimeRange(startTime: string, endTime: string) {
+  const start = parseTime(startTime)
+  const end = parseTime(endTime)
+  const workStart = 8 * 60
+  const workEnd = 18 * 60
+
+  if (start < workStart || start >= workEnd) {
+    throw new Error('预约时间必须在工作时间内（08:00-18:00）')
+  }
+  if (end <= workStart || end > workEnd) {
+    throw new Error('预约结束时间必须在工作时间内（08:00-18:00）')
+  }
+  if (end <= start) {
+    throw new Error('结束时间必须晚于开始时间')
+  }
+  const duration = end - start
+  if (duration < 15) {
+    throw new Error('预约时长至少为15分钟')
+  }
+  if (duration > 240) {
+    throw new Error('预约时长不能超过240分钟（4小时）')
+  }
+}
+
 export function createAppointment(
   chairId: number,
   patientId: number | undefined,
@@ -13,6 +42,8 @@ export function createAppointment(
   endTime: string,
   type: string = 'normal'
 ) {
+  validateTimeRange(startTime, endTime)
+
   let resolvedPatientId = patientId
   if (!resolvedPatientId) {
     const existing = patientName && patientPhone ? patientRepo.findPatientByPhone(patientPhone) : undefined
@@ -41,6 +72,12 @@ export function getAppointments(date?: string, chairId?: number) {
   return appointmentRepo.getAppointments(date, chairId)
 }
 
+export function getAppointmentById(id: number) {
+  const appointment = appointmentRepo.getAppointmentByIdWithDetails(id)
+  if (!appointment) throw new Error('预约不存在')
+  return appointment
+}
+
 export function cancelAppointment(id: number) {
   const appointment = appointmentRepo.getAppointmentById(id)
   if (!appointment) throw new Error('预约不存在')
@@ -65,6 +102,8 @@ export function createFollowup(
   startTime: string,
   endTime: string
 ) {
+  validateTimeRange(startTime, endTime)
+
   const queueEntry = queueRepo.getQueueEntryById(previousQueueId)
   if (!queueEntry) throw new Error('就诊记录不存在')
   if (queueEntry.status !== 'completed') throw new Error('只能为已完成的就诊创建复诊预约')
