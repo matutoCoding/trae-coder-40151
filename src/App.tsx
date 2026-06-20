@@ -1,0 +1,23 @@
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Layout from "@/components/Layout";
+import Dashboard from "@/pages/Dashboard";
+import Queue from "@/pages/Queue";
+import Priority from "@/pages/Priority";
+import Schedule from "@/pages/Schedule";
+import Conflict from "@/pages/Conflict";
+
+export default function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/queue" element={<Queue />} />
+          <Route path="/priority" element={<Priority />} />
+          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/conflict" element={<Conflict />} />
+        </Route>
+      </Routes>
+    </Router>
+  );
+}
