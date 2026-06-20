@@ -1,13 +1,17 @@
 import type { Request, Response } from 'express'
 import * as appointmentService from '../services/appointmentService.js'
+import * as chairRepo from '../repositories/chairRepository.js'
 
 export function getAppointments(req: Request, res: Response): void {
   try {
-    const { date, chairId } = req.query
-    const appointments = appointmentService.getAppointments(
+    const { date, chairId, type } = req.query
+    let appointments = appointmentService.getAppointments(
       date as string | undefined,
       chairId ? parseInt(chairId as string) : undefined
     )
+    if (type) {
+      appointments = appointments.filter(a => a.type === type)
+    }
     res.json({ success: true, data: appointments })
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message })
@@ -23,6 +27,15 @@ export function createAppointment(req: Request, res: Response): void {
     }
     if (!patientId && (!patientName || !patientPhone)) {
       res.status(400).json({ success: false, error: '患者ID或患者姓名+电话为必填项' })
+      return
+    }
+    const chair = chairRepo.getChairById(chairId)
+    if (!chair) {
+      res.status(400).json({ success: false, error: '椅位不存在' })
+      return
+    }
+    if (chair.status === 'maintenance') {
+      res.status(400).json({ success: false, error: '该牙椅正在维护中，无法预约' })
       return
     }
     const appointment = appointmentService.createAppointment(
@@ -85,6 +98,15 @@ export function createFollowup(req: Request, res: Response): void {
     const { previousQueueId, chairId, date, startTime, endTime } = req.body
     if (!previousQueueId || !chairId || !date || !startTime || !endTime) {
       res.status(400).json({ success: false, error: '就诊记录ID、椅位ID、日期、开始时间和结束时间为必填项' })
+      return
+    }
+    const chair = chairRepo.getChairById(chairId)
+    if (!chair) {
+      res.status(400).json({ success: false, error: '椅位不存在' })
+      return
+    }
+    if (chair.status === 'maintenance') {
+      res.status(400).json({ success: false, error: '该牙椅正在维护中，无法预约复诊' })
       return
     }
     const appointment = appointmentService.createFollowup(

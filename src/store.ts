@@ -72,6 +72,7 @@ interface AppState {
   servingList: QueueEntry[]
   chairs: DentalChair[]
   appointments: Appointment[]
+  followups: Appointment[]
   loading: boolean
   error: string | null
 
@@ -81,7 +82,7 @@ interface AppState {
   takeNumber: (name: string, phone: string, type: string) => Promise<{ queueNumber: string; position: number; estimatedWait: number }>
   callNext: (chairId: number) => Promise<void>
   callSpecific: (id: number, chairId: number) => Promise<void>
-  completeService: (id: number) => Promise<void>
+  completeService: (id: number) => Promise<QueueEntry | null>
   cancelEntry: (id: number) => Promise<void>
   promoteEntry: (id: number, type: string, targetPosition?: number) => Promise<void>
   repositionEntry: (id: number, newPosition: number) => Promise<void>
@@ -92,6 +93,7 @@ interface AppState {
   updateChairStatus: (id: number, status: string) => Promise<void>
 
   fetchAppointments: (date?: string, chairId?: number) => Promise<void>
+  fetchFollowups: () => Promise<void>
   createAppointment: (chairId: number, patientName: string, patientPhone: string, date: string, startTime: string, endTime: string, type: string) => Promise<void>
   cancelAppointment: (id: number) => Promise<void>
   completeAppointment: (id: number) => Promise<void>
@@ -178,6 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   servingList: [],
   chairs: [],
   appointments: [],
+  followups: [],
   loading: false,
   error: null,
 
@@ -255,10 +258,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   completeService: async (id) => {
     set({ loading: true, error: null })
     try {
-      await apiFetch(`/api/queue/${id}/complete`, { method: 'POST' })
+      const data = await apiFetch<{ data: any }>(`/api/queue/${id}/complete`, { method: 'POST' })
       await Promise.all([get().fetchQueue(), get().fetchServingList(), get().fetchChairs()])
+      return data.data ? mapQueueEntry(data.data) : null
     } catch (e: any) {
       set({ error: e.message, loading: false })
+      return null
     }
   },
 
@@ -279,7 +284,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         method: 'POST',
         body: JSON.stringify({ type, targetPosition }),
       })
-      await Promise.all([get().fetchQueue(), get().fetchPriorityQueue()])
+      await Promise.all([get().fetchQueue(), get().fetchPriorityQueue(), get().fetchServingList()])
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }
@@ -340,7 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         method: 'PATCH',
         body: JSON.stringify({ status }),
       })
-      await get().fetchChairs()
+      await Promise.all([get().fetchChairs(), get().fetchAppointments(), get().fetchQueue()])
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }
@@ -361,6 +366,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  fetchFollowups: async () => {
+    set({ loading: true, error: null })
+    try {
+      const data = await apiFetch<{ data: any[] }>('/api/appointments?type=followup')
+      set({ followups: data.data.map(mapAppointment), loading: false })
+    } catch (e: any) {
+      set({ error: e.message, loading: false })
+    }
+  },
+
   createAppointment: async (chairId, patientName, patientPhone, date, startTime, endTime, type) => {
     set({ loading: true, error: null })
     try {
@@ -376,9 +391,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           type,
         }),
       })
+      set({ loading: false })
       await get().fetchAppointments(date, chairId)
+      if (type === 'followup') {
+        await get().fetchFollowups()
+      }
     } catch (e: any) {
       set({ error: e.message, loading: false })
+      throw e
     }
   },
 
@@ -386,7 +406,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       await apiFetch(`/api/appointments/${id}/cancel`, { method: 'PATCH' })
-      await get().fetchAppointments()
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }
@@ -396,7 +417,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       await apiFetch(`/api/appointments/${id}/complete`, { method: 'PATCH' })
-      await get().fetchAppointments()
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
     } catch (e: any) {
       set({ error: e.message, loading: false })
     }
@@ -409,9 +431,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         method: 'POST',
         body: JSON.stringify({ previousQueueId: queueId, chairId, date, startTime, endTime }),
       })
-      await get().fetchAppointments()
+      await Promise.all([get().fetchAppointments(), get().fetchFollowups()])
+      set({ loading: false })
     } catch (e: any) {
       set({ error: e.message, loading: false })
+      throw e
     }
   },
 

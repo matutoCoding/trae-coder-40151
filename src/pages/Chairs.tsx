@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Settings, Plus, Edit2, Wrench, CheckCircle, Armchair } from 'lucide-react'
+import { Settings, Plus, Edit2, Wrench, CheckCircle, Armchair, AlertTriangle, X } from 'lucide-react'
 import { useAppStore, type DentalChair } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -16,6 +16,7 @@ export default function Chairs() {
   const [addForm, setAddForm] = useState({ name: '', location: '' })
   const [editForm, setEditForm] = useState({ name: '', location: '' })
   const [toast, setToast] = useState<string | null>(null)
+  const [confirmToggle, setConfirmToggle] = useState<DentalChair | null>(null)
 
   useEffect(() => {
     fetchChairs()
@@ -41,11 +42,17 @@ export default function Chairs() {
     showToast('牙椅信息已更新')
   }
 
-  const handleToggleStatus = async (chair: DentalChair) => {
+  const handleToggleStatus = (chair: DentalChair) => {
     if (chair.status === 'occupied') return
-    const newStatus = chair.status === 'available' ? 'maintenance' : 'available'
-    await updateChairStatus(chair.id, newStatus)
+    setConfirmToggle(chair)
+  }
+
+  const handleConfirmToggle = async () => {
+    if (!confirmToggle) return
+    const newStatus = confirmToggle.status === 'available' ? 'maintenance' : 'available'
+    await updateChairStatus(confirmToggle.id, newStatus)
     showToast(newStatus === 'maintenance' ? '已标记为维护中' : '已恢复可用')
+    setConfirmToggle(null)
   }
 
   const startEditing = (chair: DentalChair) => {
@@ -238,6 +245,56 @@ export default function Chairs() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {confirmToggle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-slide-up">
+            <div className="flex items-center gap-2 mb-4">
+              <div className={cn(
+                'w-10 h-10 rounded-full flex items-center justify-center',
+                confirmToggle.status === 'available' ? 'bg-warning-50' : 'bg-success-50'
+              )}>
+                {confirmToggle.status === 'available' ? (
+                  <AlertTriangle className="w-5 h-5 text-warning" />
+                ) : (
+                  <CheckCircle className="w-5 h-5 text-success" />
+                )}
+              </div>
+              <h3 className="text-lg font-bold text-[var(--color-text)]">
+                {confirmToggle.status === 'available' ? '标记维护中' : '恢复可用'}
+              </h3>
+            </div>
+            {confirmToggle.status === 'available' ? (
+              <p className="text-sm text-[var(--color-text-secondary)] mb-6">
+                确定将 <span className="font-medium text-[var(--color-text)]">{confirmToggle.name}</span> 标记为维护中？维护期间该牙椅将无法用于叫号和预约。
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--color-text-secondary)] mb-6">
+                确定将 <span className="font-medium text-[var(--color-text)]">{confirmToggle.name}</span> 恢复为可用状态？
+              </p>
+            )}
+            <div className="space-y-2">
+              <button
+                onClick={handleConfirmToggle}
+                className={cn(
+                  'w-full py-2.5 rounded-lg text-sm font-medium transition-colors text-white',
+                  confirmToggle.status === 'available'
+                    ? 'bg-warning hover:bg-warning-light'
+                    : 'bg-success hover:bg-success-light'
+                )}
+              >
+                确认
+              </button>
+              <button
+                onClick={() => setConfirmToggle(null)}
+                className="w-full py-2.5 bg-gray-100 text-[var(--color-text-secondary)] rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

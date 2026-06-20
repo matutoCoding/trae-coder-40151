@@ -9,7 +9,7 @@ const typeConfig = {
 }
 
 export default function Priority() {
-  const { queue, fetchQueue, promoteEntry } = useAppStore()
+  const { queue, fetchQueue, fetchPriorityQueue, fetchServingList, promoteEntry } = useAppStore()
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -25,16 +25,19 @@ export default function Priority() {
 
   const handlePromoteToVip = async (id: number) => {
     await promoteEntry(id, 'vip')
+    await Promise.all([fetchQueue(), fetchPriorityQueue(), fetchServingList()])
     showToast('已提升为VIP')
   }
 
   const handlePromoteToEmergency = async (id: number) => {
     await promoteEntry(id, 'emergency')
+    await Promise.all([fetchQueue(), fetchPriorityQueue(), fetchServingList()])
     showToast('已提升为急诊')
   }
 
   const handlePromotePosition = async (id: number, type: string) => {
-    promoteEntry(id, type)
+    await promoteEntry(id, type)
+    await Promise.all([fetchQueue(), fetchPriorityQueue(), fetchServingList()])
   }
 
   return (

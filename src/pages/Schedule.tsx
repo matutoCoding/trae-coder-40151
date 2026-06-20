@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, Stethoscope } from 'lucide-react'
+import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, Stethoscope, BarChart3 } from 'lucide-react'
 import { useAppStore, type Appointment, type DentalChair } from '@/store'
 
 function add30Minutes(time: string): string {
@@ -58,6 +58,21 @@ function getAppointmentHeight(startTime: string, endTime: string): number {
   return ((timeToMinutes(endTime) - timeToMinutes(startTime)) / 30) * 60
 }
 
+function getWeekStart(dateStr: string): string {
+  const d = new Date(dateStr)
+  const day = d.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  return formatDate(d)
+}
+
+function getWeekDates(dateStr: string): string[] {
+  const monday = getWeekStart(dateStr)
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+}
+
+const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
 const typeColors: Record<string, string> = {
   normal: 'bg-primary text-white',
   vip: 'bg-warning text-white',
@@ -79,19 +94,29 @@ const statusLabels: Record<string, { text: string; cls: string }> = {
   cancelled: { text: '已取消', cls: 'bg-danger/10 text-danger' },
 }
 
+function getLoadStyle(minutes: number) {
+  if (minutes === 0) return 'bg-gray-50 text-gray-500'
+  if (minutes > 480) return 'bg-danger/10 text-danger'
+  if (minutes >= 240) return 'bg-warning/10 text-warning'
+  return 'bg-success/10 text-success'
+}
+
 export default function Schedule() {
   const {
     chairs,
     appointments,
+    error,
     fetchChairs,
     fetchAppointments,
     createAppointment,
     cancelAppointment,
     getAppointmentById,
     createChair,
+    clearError,
   } = useAppStore()
 
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()))
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
   const [showForm, setShowForm] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
   const [showChairForm, setShowChairForm] = useState(false)
@@ -107,35 +132,60 @@ export default function Schedule() {
     type: 'normal' as 'normal' | 'vip' | 'emergency' | 'followup',
   })
   const [timeError, setTimeError] = useState<string | null>(null)
+  const [formSubmitError, setFormSubmitError] = useState<string | null>(null)
 
   const timeSlots = useMemo(() => getTimeSlots(), [])
   const availableChairs = useMemo(() => chairs.filter(c => c.status !== 'maintenance'), [chairs])
   const today = formatDate(new Date())
-  const minTime = getMinTime(selectedDate)
+  const minTime = getMinTime(form.date)
   const maxTime = '18:00'
+  const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate])
+  const weekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate])
+  const thisWeekStart = useMemo(() => getWeekStart(today), [today])
 
   useEffect(() => {
     setTimeError(timeToMinutes(form.endTime) <= timeToMinutes(form.startTime) ? '结束时间必须晚于开始时间' : null)
   }, [form.startTime, form.endTime])
 
   useEffect(() => { fetchChairs() }, [fetchChairs])
-  useEffect(() => { fetchAppointments(selectedDate) }, [fetchAppointments, selectedDate])
+
+  useEffect(() => {
+    if (viewMode === 'day') {
+      fetchAppointments(selectedDate)
+    } else {
+      fetchAppointments()
+    }
+  }, [fetchAppointments, selectedDate, viewMode])
+
+  const handleViewModeChange = (mode: 'day' | 'week') => {
+    setViewMode(mode)
+    if (mode === 'week') {
+      setSelectedDate(getWeekStart(selectedDate))
+    }
+  }
+
+  const openFormForCell = (chair: DentalChair, date: string, time?: string) => {
+    const startTime = time && timeToMinutes(time) >= timeToMinutes('08:00') ? time : '09:00'
+    setForm({
+      chairId: chair.id,
+      patientName: '',
+      patientPhone: '',
+      date,
+      startTime,
+      endTime: add30Minutes(startTime),
+      type: 'normal',
+    })
+    setFormSubmitError(null)
+    clearError()
+    setShowForm(true)
+  }
 
   const handleCellClick = (chair: DentalChair, time: string) => {
     let startTime = time
     if (timeToMinutes(time) < timeToMinutes(minTime)) {
       startTime = minTime
     }
-    setForm({
-      chairId: chair.id,
-      patientName: '',
-      patientPhone: '',
-      date: selectedDate,
-      startTime: startTime,
-      endTime: add30Minutes(startTime),
-      type: 'normal',
-    })
-    setShowForm(true)
+    openFormForCell(chair, selectedDate, startTime)
   }
 
   const handleStartTimeChange = (value: string) => {
@@ -157,8 +207,19 @@ export default function Schedule() {
 
   const handleSubmit = async () => {
     if (!form.chairId || !form.patientName || !form.patientPhone || timeError) return
-    await createAppointment(form.chairId, form.patientName, form.patientPhone, form.date, form.startTime, form.endTime, form.type)
-    setShowForm(false)
+    setFormSubmitError(null)
+    clearError()
+    try {
+      await createAppointment(form.chairId, form.patientName, form.patientPhone, form.date, form.startTime, form.endTime, form.type)
+      const currentError = useAppStore.getState().error
+      if (currentError) {
+        setFormSubmitError(currentError)
+        return
+      }
+      setShowForm(false)
+    } catch (e: any) {
+      setFormSubmitError(e.message || '创建预约失败')
+    }
   }
 
   const handleCancelAppointment = async () => {
@@ -175,10 +236,209 @@ export default function Schedule() {
     setChairForm({ name: '', location: '' })
   }
 
+  const closeForm = () => {
+    setShowForm(false)
+    setFormSubmitError(null)
+    clearError()
+  }
+
   const getAppointmentsForChair = (chairId: number) =>
     appointments.filter(a => a.chairId === chairId && a.appointmentDate === selectedDate)
 
+  const getAppointmentsForChairAndDate = (chairId: number, date: string) =>
+    appointments.filter(a => a.chairId === chairId && a.appointmentDate === date)
+
   const getSelectedChair = () => chairs.find(c => c.id === form.chairId)
+
+  const getChairStats = (chair: DentalChair) => {
+    return weekDates.map(date => {
+      const dayApts = getAppointmentsForChairAndDate(chair.id, date)
+      const bookedMinutes = dayApts.reduce((sum, a) => sum + (timeToMinutes(a.endTime) - timeToMinutes(a.startTime)), 0)
+      const followupCount = dayApts.filter(a => a.type === 'followup').length
+      const totalCount = dayApts.length
+      const followupRatio = totalCount > 0 ? Math.round((followupCount / totalCount) * 100) : 0
+      return {
+        date,
+        count: totalCount,
+        bookedMinutes,
+        freeMinutes: 600 - bookedMinutes,
+        followupRatio,
+      }
+    })
+  }
+
+  const renderDayView = () => (
+    <div className="flex-1 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+      <div className="flex border-b border-gray-200">
+        <div className="w-20 flex-shrink-0 bg-gray-50 border-r border-gray-200" />
+        <div className="flex overflow-x-auto">
+          {availableChairs.map((chair) => (
+            <div key={chair.id} className="w-[180px] flex-shrink-0 p-3 border-r border-gray-200 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <Stethoscope className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-gray-800">{chair.name}</span>
+              </div>
+              <div className="text-xs text-gray-500">{chair.location}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <div className="flex min-h-full">
+          <div className="w-20 flex-shrink-0 bg-gray-50 border-r border-gray-200">
+            {timeSlots.map((time) => (
+              <div key={time} className="h-[60px] border-b border-gray-100 flex items-start justify-end pr-2 pt-1 text-xs text-gray-500">{time}</div>
+            ))}
+          </div>
+          <div className="flex">
+            {availableChairs.map((chair) => {
+              const chairAppointments = getAppointmentsForChair(chair.id)
+              return (
+                <div key={chair.id} className="w-[180px] flex-shrink-0 border-r border-gray-200 relative">
+                  {timeSlots.map((time) => {
+                    const isPast = selectedDate === today && timeToMinutes(time) < timeToMinutes(minTime)
+                    return (
+                      <div
+                        key={`${chair.id}-${time}`}
+                        onClick={() => !isPast && handleCellClick(chair, time)}
+                        className={`h-[60px] border-b border-gray-100 transition-colors ${
+                          isPast
+                            ? 'bg-gray-50 cursor-not-allowed'
+                            : 'hover:bg-primary/5 cursor-pointer'
+                        }`}
+                      />
+                    )
+                  })}
+                  {chairAppointments.map((apt) => {
+                    const top = getAppointmentTop(apt.startTime)
+                    const height = getAppointmentHeight(apt.startTime, apt.endTime)
+                    const isCancelled = apt.status === 'cancelled'
+                    return (
+                      <div
+                        key={apt.id}
+                        className={`absolute left-1 right-1 rounded-lg p-2 cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-lg overflow-hidden ${typeColors[apt.type] || typeColors.normal} ${isCancelled ? 'opacity-50' : ''}`}
+                        style={{ top: `${top}px`, height: `${height - 4}px` }}
+                        onClick={(e) => { e.stopPropagation(); handleAppointmentClick(apt) }}
+                      >
+                        <div className={`text-sm font-medium truncate ${isCancelled ? 'line-through' : ''}`}>{apt.patientName}</div>
+                        <div className={`text-xs opacity-90 ${isCancelled ? 'line-through' : ''}`}>{apt.startTime} - {apt.endTime}</div>
+                        <div className="text-[10px] mt-0.5 opacity-80">{typeLabels[apt.type] || apt.type}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderWeekStats = () => (
+    <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <BarChart3 className="w-5 h-5 text-primary" />
+        <h3 className="font-semibold text-gray-800">牙椅负载统计</h3>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {availableChairs.map((chair) => {
+          const stats = getChairStats(chair)
+          return (
+            <div key={chair.id} className="flex-1 min-w-[260px] bg-gray-50 rounded-xl p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Stethoscope className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-gray-800 text-sm">{chair.name}</span>
+                <span className="text-xs text-gray-500">· {chair.location}</span>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {stats.map((stat, idx) => (
+                  <div key={stat.date} className={`rounded-lg p-1.5 text-center ${getLoadStyle(stat.bookedMinutes)}`}>
+                    <div className="text-[10px] font-medium mb-0.5">{weekDayLabels[idx]}</div>
+                    <div className="text-xs font-bold">{stat.count}单</div>
+                    <div className="text-[10px]">{stat.bookedMinutes}分</div>
+                    <div className="text-[10px] opacity-75">闲{stat.freeMinutes}</div>
+                    {stat.count > 0 && <div className="text-[10px]">复诊{stat.followupRatio}%</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  const renderWeekGrid = () => (
+    <div className="flex-1 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
+      <div className="flex border-b border-gray-200">
+        <div className="w-[120px] flex-shrink-0 bg-gray-50 border-r border-gray-200 p-3 text-center">
+          <span className="text-xs text-gray-500">牙椅</span>
+        </div>
+        {weekDates.map((date, idx) => {
+          const isToday = date === today
+          return (
+            <div key={date} className="flex-1 min-w-[100px] p-2 border-r border-gray-200 text-center">
+              <div className={`text-xs font-medium ${isToday ? 'text-primary' : 'text-gray-600'}`}>{weekDayLabels[idx]}</div>
+              <div className={`text-sm font-bold ${isToday ? 'bg-primary text-white rounded-full w-7 h-7 inline-flex items-center justify-center mt-0.5' : 'text-gray-800'}`}>
+                {date.slice(5).replace('-', '/')}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex-1 overflow-auto">
+        {availableChairs.map((chair) => (
+          <div key={chair.id} className="flex border-b border-gray-100 min-h-[90px]">
+            <div className="w-[120px] flex-shrink-0 bg-gray-50 border-r border-gray-200 p-2 flex flex-col justify-center">
+              <div className="flex items-center gap-1">
+                <Stethoscope className="w-3.5 h-3.5 text-primary" />
+                <span className="font-semibold text-gray-800 text-sm">{chair.name}</span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5 truncate">{chair.location}</div>
+            </div>
+            {weekDates.map((date) => {
+              const dayApts = getAppointmentsForChairAndDate(chair.id, date)
+              return (
+                <div
+                  key={`${chair.id}-${date}`}
+                  onClick={() => openFormForCell(chair, date)}
+                  className="flex-1 min-w-[100px] border-r border-gray-100 p-1.5 cursor-pointer hover:bg-primary/5 transition-colors"
+                >
+                  <div className="flex flex-col gap-1">
+                    {dayApts.map((apt) => {
+                      const isCancelled = apt.status === 'cancelled'
+                      return (
+                        <div
+                          key={apt.id}
+                          onClick={(e) => { e.stopPropagation(); handleAppointmentClick(apt) }}
+                          className={`rounded px-1.5 py-1 cursor-pointer transition-all hover:scale-[1.01] ${typeColors[apt.type] || typeColors.normal} ${isCancelled ? 'opacity-50 line-through' : ''}`}
+                        >
+                          <div className="text-[11px] font-medium truncate">{apt.patientName.slice(0, 2)}</div>
+                          <div className="text-[10px] opacity-90">{apt.startTime}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  const renderWeekView = () => (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div style={{ height: '40%' }} className="flex-shrink-0 overflow-auto">
+        {renderWeekStats()}
+      </div>
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {renderWeekGrid()}
+      </div>
+    </div>
+  )
 
   return (
     <div className="h-full flex flex-col animate-fade-in">
@@ -188,116 +448,80 @@ export default function Schedule() {
             <Calendar className="w-6 h-6 text-primary" />
             <h2 className="text-xl font-bold text-gray-800">日程排期</h2>
           </div>
-          <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
-            <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
-              <ChevronLeft className="w-4 h-4 text-gray-600" />
-            </button>
-            <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="px-3 py-1 text-sm hover:bg-gray-100 rounded transition-colors">昨天</button>
-            <button onClick={() => setSelectedDate(today)} className={`px-3 py-1 text-sm rounded transition-colors ${selectedDate === today ? 'bg-primary text-white' : 'hover:bg-gray-100'}`}>今天</button>
-            <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="px-3 py-1 text-sm hover:bg-gray-100 rounded transition-colors">明天</button>
-            <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
-              <ChevronRight className="w-4 h-4 text-gray-600" />
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              min={today}
-              onChange={(e) => {
-                const newDate = e.target.value
-                const newMinTime = getMinTime(newDate)
-                let newStartTime = form.startTime
-                if (timeToMinutes(form.startTime) < timeToMinutes(newMinTime)) {
-                  newStartTime = newMinTime
-                }
-                let newEndTime = form.endTime
-                if (timeToMinutes(newEndTime) <= timeToMinutes(newStartTime)) {
-                  newEndTime = add30Minutes(newStartTime)
-                }
-                setSelectedDate(newDate)
-                setForm({ ...form, date: newDate, startTime: newStartTime, endTime: newEndTime })
-              }}
-              className="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-          </div>
+          {viewMode === 'day' ? (
+            <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
+              <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </button>
+              <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="px-3 py-1 text-sm hover:bg-gray-100 rounded transition-colors">昨天</button>
+              <button onClick={() => setSelectedDate(today)} className={`px-3 py-1 text-sm rounded transition-colors ${selectedDate === today ? 'bg-primary text-white' : 'hover:bg-gray-100'}`}>今天</button>
+              <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="px-3 py-1 text-sm hover:bg-gray-100 rounded transition-colors">明天</button>
+              <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </button>
+              <input
+                type="date"
+                value={selectedDate}
+                min={today}
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  const newMinTime = getMinTime(newDate)
+                  let newStartTime = form.startTime
+                  if (timeToMinutes(form.startTime) < timeToMinutes(newMinTime)) {
+                    newStartTime = newMinTime
+                  }
+                  let newEndTime = form.endTime
+                  if (timeToMinutes(newEndTime) <= timeToMinutes(newStartTime)) {
+                    newEndTime = add30Minutes(newStartTime)
+                  }
+                  setSelectedDate(newDate)
+                  setForm({ ...form, date: newDate, startTime: newStartTime, endTime: newEndTime })
+                }}
+                className="ml-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
+              <button onClick={() => setSelectedDate(addDays(weekStart, -7))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </button>
+              <button onClick={() => setSelectedDate(thisWeekStart)} className={`px-3 py-1 text-sm rounded transition-colors ${weekStart === thisWeekStart ? 'bg-primary text-white' : 'hover:bg-gray-100'}`}>本周</button>
+              <button onClick={() => setSelectedDate(addDays(weekStart, 7))} className="p-1.5 hover:bg-gray-100 rounded transition-colors">
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </button>
+              <span className="ml-2 px-3 py-1.5 text-sm text-gray-700">{weekDates[0].slice(5).replace('-', '/')} - {weekDates[6].slice(5).replace('-', '/')}</span>
+            </div>
+          )}
         </div>
-        <button onClick={() => setShowChairForm(true)} className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors shadow-sm">
-          <Plus className="w-4 h-4" />新增牙椅
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-white rounded-lg p-1 shadow-sm">
+            <button
+              onClick={() => handleViewModeChange('day')}
+              className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${viewMode === 'day' ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              日视图
+            </button>
+            <button
+              onClick={() => handleViewModeChange('week')}
+              className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${viewMode === 'week' ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              周视图
+            </button>
+          </div>
+          <button onClick={() => setShowChairForm(true)} className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors shadow-sm">
+            <Plus className="w-4 h-4" />新增牙椅
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
-        <div className="flex border-b border-gray-200">
-          <div className="w-20 flex-shrink-0 bg-gray-50 border-r border-gray-200" />
-          <div className="flex overflow-x-auto">
-            {availableChairs.map((chair) => (
-              <div key={chair.id} className="w-[180px] flex-shrink-0 p-3 border-r border-gray-200 text-center">
-                <div className="flex items-center justify-center gap-1.5 mb-1">
-                  <Stethoscope className="w-4 h-4 text-primary" />
-                  <span className="font-semibold text-gray-800">{chair.name}</span>
-                </div>
-                <div className="text-xs text-gray-500">{chair.location}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-auto">
-          <div className="flex min-h-full">
-            <div className="w-20 flex-shrink-0 bg-gray-50 border-r border-gray-200">
-              {timeSlots.map((time) => (
-                <div key={time} className="h-[60px] border-b border-gray-100 flex items-start justify-end pr-2 pt-1 text-xs text-gray-500">{time}</div>
-              ))}
-            </div>
-            <div className="flex">
-              {availableChairs.map((chair) => {
-                const chairAppointments = getAppointmentsForChair(chair.id)
-                return (
-                  <div key={chair.id} className="w-[180px] flex-shrink-0 border-r border-gray-200 relative">
-                    {timeSlots.map((time) => {
-                      const isPast = selectedDate === today && timeToMinutes(time) < timeToMinutes(minTime)
-                      return (
-                        <div
-                          key={`${chair.id}-${time}`}
-                          onClick={() => !isPast && handleCellClick(chair, time)}
-                          className={`h-[60px] border-b border-gray-100 transition-colors ${
-                            isPast
-                              ? 'bg-gray-50 cursor-not-allowed'
-                              : 'hover:bg-primary/5 cursor-pointer'
-                          }`}
-                        />
-                      )
-                    })}
-                    {chairAppointments.map((apt) => {
-                      const top = getAppointmentTop(apt.startTime)
-                      const height = getAppointmentHeight(apt.startTime, apt.endTime)
-                      const isCancelled = apt.status === 'cancelled'
-                      return (
-                        <div
-                          key={apt.id}
-                          className={`absolute left-1 right-1 rounded-lg p-2 cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-lg overflow-hidden ${typeColors[apt.type] || typeColors.normal} ${isCancelled ? 'opacity-50' : ''}`}
-                          style={{ top: `${top}px`, height: `${height - 4}px` }}
-                          onClick={(e) => { e.stopPropagation(); handleAppointmentClick(apt) }}
-                        >
-                          <div className={`text-sm font-medium truncate ${isCancelled ? 'line-through' : ''}`}>{apt.patientName}</div>
-                          <div className={`text-xs opacity-90 ${isCancelled ? 'line-through' : ''}`}>{apt.startTime} - {apt.endTime}</div>
-                          <div className="text-[10px] mt-0.5 opacity-80">{typeLabels[apt.type] || apt.type}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
+      {viewMode === 'day' ? renderDayView() : renderWeekView()}
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-slide-up">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-gray-800">新增预约</h3>
-              <button onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+              <button onClick={closeForm} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -357,6 +581,12 @@ export default function Schedule() {
                 </div>
               </div>
               {timeError && <div className="flex items-center gap-1.5 text-xs text-danger"><AlertCircle className="w-3.5 h-3.5" />{timeError}</div>}
+              {(formSubmitError || error) && (
+                <div className="flex items-start gap-2 p-3 bg-danger/10 border border-danger/20 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+                  <span className="text-xs text-danger">{formSubmitError || error}</span>
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={handleSubmit}
@@ -365,7 +595,7 @@ export default function Schedule() {
                 >
                   确认预约
                 </button>
-                <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">取消</button>
+                <button onClick={closeForm} className="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">取消</button>
               </div>
             </div>
           </div>

@@ -1,19 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Bell, UserPlus, PhoneCall, X, User, Plus, Calendar, CheckCircle, SkipForward } from 'lucide-react'
+import { Bell, UserPlus, PhoneCall, X, User, Plus, Calendar, CheckCircle, SkipForward, AlertCircle } from 'lucide-react'
 import { useAppStore, type QueueEntry } from '@/store'
 
 function addDays(date: Date, days: number): string {
   const result = new Date(date)
   result.setDate(result.getDate() + days)
   return result.toISOString().split('T')[0]
-}
-
-function roundToNext30Minutes(date: Date): string {
-  const minutes = date.getMinutes()
-  const rounded = Math.ceil(minutes / 30) * 30
-  const hours = date.getHours() + Math.floor(rounded / 60)
-  const mins = rounded % 60
-  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
 }
 
 function add30Minutes(time: string): string {
@@ -25,7 +17,7 @@ function add30Minutes(time: string): string {
 }
 
 export default function Queue() {
-  const { queue, servingList, chairs, fetchQueue, fetchServingList, fetchChairs, fetchAppointments, takeNumber, callNext, callSpecific, completeService, cancelEntry, createFollowup } = useAppStore()
+  const { queue, servingList, chairs, error, clearError, fetchQueue, fetchServingList, fetchChairs, fetchAppointments, fetchFollowups, takeNumber, callNext, callSpecific, completeService, cancelEntry, createFollowup } = useAppStore()
   const [showTakeNumber, setShowTakeNumber] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '', type: 'normal' })
   const [completeModal, setCompleteModal] = useState<QueueEntry | null>(null)
@@ -37,7 +29,9 @@ export default function Queue() {
     chairId: 0,
     startTime: '',
     endTime: '',
+    previousQueueId: 0,
   })
+  const [followupError, setFollowupError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const showToast = (message: string) => {
@@ -53,6 +47,8 @@ export default function Queue() {
 
   const waitingList = queue.filter((q) => q.status === 'waiting')
   const availableChairs = chairs.filter((c) => c.status === 'available')
+  const callableChairs = chairs.filter((c) => c.status !== 'maintenance' && c.status !== 'occupied')
+  const followupChairs = chairs.filter((c) => c.status !== 'maintenance')
 
   const handleTakeNumber = async () => {
     if (!form.name || !form.phone) return
@@ -70,6 +66,7 @@ export default function Queue() {
   }
 
   const handleCompleteClick = (entry: QueueEntry) => {
+    clearError()
     setCompleteModal(entry)
   }
 
@@ -82,36 +79,48 @@ export default function Queue() {
 
   const handleCompleteWithFollowup = async () => {
     if (!completeModal) return
-    await completeService(completeModal.id)
+    const completed = await completeService(completeModal.id)
+    if (!completed) {
+      setCompleteModal(null)
+      return
+    }
 
-    const now = new Date()
-    const defaultChair = chairs.find((c) => c.id === completeModal.chairId) || chairs[0]
+    const completedDate = completed.completedAt ? new Date(completed.completedAt) : new Date()
+    const defaultChair = followupChairs.find((c) => c.id === completed.chairId) || followupChairs[0]
 
     setFollowupForm({
-      patientName: completeModal.patientName,
-      patientPhone: completeModal.patientPhone,
-      date: addDays(now, 7),
+      patientName: completed.patientName,
+      patientPhone: completed.patientPhone,
+      date: addDays(completedDate, 7),
       chairId: defaultChair?.id || 0,
-      startTime: roundToNext30Minutes(now),
-      endTime: add30Minutes(roundToNext30Minutes(now)),
+      startTime: '09:00',
+      endTime: '09:30',
+      previousQueueId: completed.id,
     })
 
     setCompleteModal(null)
+    clearError()
+    setFollowupError(null)
     setShowFollowup(true)
   }
 
   const handleCreateFollowup = async () => {
-    if (!completeModal || !followupForm.chairId) return
-    await createFollowup(
-      completeModal.id,
-      followupForm.chairId,
-      followupForm.date,
-      followupForm.startTime,
-      followupForm.endTime,
-    )
-    await fetchAppointments()
-    setShowFollowup(false)
-    showToast('复诊预约成功')
+    if (!followupForm.previousQueueId || !followupForm.chairId) return
+    setFollowupError(null)
+    try {
+      await createFollowup(
+        followupForm.previousQueueId,
+        followupForm.chairId,
+        followupForm.date,
+        followupForm.startTime,
+        followupForm.endTime,
+      )
+      await Promise.all([fetchAppointments(), fetchFollowups()])
+      setShowFollowup(false)
+      showToast('复诊预约成功')
+    } catch (e: any) {
+      setFollowupError(e.message || '预约失败，请重试')
+    }
   }
 
   const handleCancel = async (id: number) => {
@@ -215,7 +224,7 @@ export default function Queue() {
                   className="w-full px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 >
                   <option value={0}>请选择椅位</option>
-                  {chairs.map((c) => (
+                  {followupChairs.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
@@ -244,6 +253,12 @@ export default function Queue() {
                   />
                 </div>
               </div>
+              {(followupError || error) && (
+                <div className="flex items-center gap-1.5 text-xs text-danger">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {followupError || error}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 mt-6">
@@ -353,11 +368,11 @@ export default function Queue() {
         </div>
       )}
 
-      {availableChairs.length > 0 && waitingList.length > 0 && (
+      {callableChairs.length > 0 && waitingList.length > 0 && (
         <div className="bg-white rounded-xl p-4 shadow-sm">
           <h3 className="font-semibold text-[var(--color-text)] mb-3">呼叫下一位</h3>
           <div className="flex flex-wrap gap-2">
-            {availableChairs.map((chair) => (
+            {callableChairs.map((chair) => (
               <button
                 key={chair.id}
                 onClick={() => handleCallNext(chair.id)}
@@ -368,6 +383,21 @@ export default function Queue() {
                 <span className="text-sm font-medium">{chair.name} 呼叫</span>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {callableChairs.length === 0 && waitingList.length > 0 && (
+        <div className="bg-white rounded-xl p-4 shadow-sm">
+          <h3 className="font-semibold text-[var(--color-text)] mb-3">呼叫下一位</h3>
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled
+              className="relative flex items-center gap-2 px-4 py-2.5 bg-gray-300 text-white rounded-xl cursor-not-allowed shadow-sm"
+            >
+              <PhoneCall className="w-4 h-4" />
+              <span className="text-sm font-medium">暂无可呼叫椅位</span>
+            </button>
           </div>
         </div>
       )}
@@ -406,7 +436,7 @@ export default function Queue() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {availableChairs.map((chair) => (
+                  {callableChairs.map((chair) => (
                     <button
                       key={chair.id}
                       onClick={() => handleCallSpecific(entry.id, chair.id)}
@@ -415,6 +445,11 @@ export default function Queue() {
                       {chair.name}
                     </button>
                   ))}
+                  {callableChairs.length === 0 && (
+                    <span className="px-2.5 py-1 text-xs bg-gray-100 text-gray-400 rounded-md font-medium">
+                      无可用椅位
+                    </span>
+                  )}
                   <button
                     onClick={() => handleCancel(entry.id)}
                     className="p-1.5 text-[var(--color-text-secondary)] hover:text-danger transition-colors"

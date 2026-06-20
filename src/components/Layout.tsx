@@ -1,11 +1,12 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Bell, Crown, Calendar, ShieldCheck, Cross, Settings } from 'lucide-react'
+import { LayoutDashboard, Bell, Crown, Calendar, Stethoscope, ShieldCheck, Cross, Settings } from 'lucide-react'
 
 const tabs = [
   { path: '/', label: '仪表盘', icon: LayoutDashboard },
   { path: '/queue', label: '叫号', icon: Bell },
   { path: '/priority', label: '优先', icon: Crown },
   { path: '/schedule', label: '排期', icon: Calendar },
+  { path: '/followups', label: '复诊', icon: Stethoscope },
   { path: '/conflict', label: '校验', icon: ShieldCheck },
   { path: '/chairs', label: '设置', icon: Settings },
 ]
