@@ -67,6 +67,16 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_appointments_chair_date ON appointments(chair_id, appointment_date);
     CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+
+    CREATE TABLE IF NOT EXISTS appointment_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER NOT NULL REFERENCES appointments(id),
+      action TEXT NOT NULL,
+      remark TEXT,
+      operator TEXT DEFAULT '前台',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_logs_appt ON appointment_logs(appointment_id);
   `)
 
   try {

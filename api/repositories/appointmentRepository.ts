@@ -168,3 +168,79 @@ export function updateAppointmentReminder(
   db.prepare(`UPDATE appointments SET ${fields.join(', ')} WHERE id = ?`).run(...params)
   return getAppointmentById(id)
 }
+
+export interface AppointmentLog {
+  id: number
+  appointment_id: number
+  action: string
+  remark: string | null
+  operator: string
+  created_at: string
+}
+
+export function addAppointmentLog(appointmentId: number, action: string, remark?: string, operator?: string): AppointmentLog {
+  const db = getDb()
+  const stmt = db.prepare('INSERT INTO appointment_logs (appointment_id, action, remark, operator) VALUES (?, ?, ?, ?)')
+  const result = stmt.run(appointmentId, action, remark ?? null, operator ?? '前台')
+  return getLogById(result.lastInsertRowid as number) as AppointmentLog
+}
+
+export function getLogsByAppointmentId(appointmentId: number): AppointmentLog[] {
+  const db = getDb()
+  return db.prepare('SELECT * FROM appointment_logs WHERE appointment_id = ? ORDER BY created_at DESC').all(appointmentId) as AppointmentLog[]
+}
+
+function getLogById(id: number) {
+  return getDb().prepare('SELECT * FROM appointment_logs WHERE id = ?').get(id)
+}
+
+export function getFollowupStats(dateFrom?: string, dateTo?: string): {
+  total: number
+  completed: number
+  no_show: number
+  rescheduled: number
+  cancelled: number
+  arrival_rate: number
+} {
+  const db = getDb()
+  let sql = `
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN reminder_status = 'no_show' THEN 1 ELSE 0 END) as no_show,
+      SUM(CASE WHEN reminder_status = 'rescheduled' THEN 1 ELSE 0 END) as rescheduled,
+      SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+    FROM appointments
+    WHERE type = 'followup'
+  `
+  const params: any[] = []
+  if (dateFrom) {
+    sql += ' AND appointment_date >= ?'
+    params.push(dateFrom)
+  }
+  if (dateTo) {
+    sql += ' AND appointment_date <= ?'
+    params.push(dateTo)
+  }
+  const row = db.prepare(sql).get(...params) as {
+    total: number
+    completed: number | null
+    no_show: number | null
+    rescheduled: number | null
+    cancelled: number | null
+  }
+  const completed = row.completed ?? 0
+  const noShow = row.no_show ?? 0
+  const rescheduled = row.rescheduled ?? 0
+  const cancelled = row.cancelled ?? 0
+  const denominator = row.total - cancelled
+  const arrivalRate = denominator > 0 ? Number(((completed / denominator) * 100).toFixed(1)) : 0
+  return {
+    total: row.total,
+    completed,
+    no_show: noShow,
+    rescheduled,
+    cancelled,
+    arrival_rate: arrivalRate
+  }
+}

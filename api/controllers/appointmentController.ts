@@ -162,3 +162,34 @@ export function markRescheduled(req: Request, res: Response): void {
     res.status(400).json({ success: false, error: error.message })
   }
 }
+
+export function getAppointmentLogs(req: Request, res: Response): void {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) {
+      res.status(400).json({ success: false, error: '预约ID为必填项' })
+      return
+    }
+    const logs = appointmentService.getAppointmentLogs(id)
+    res.json({ success: true, data: logs })
+  } catch (error: any) {
+    if (error.message === '预约不存在') {
+      res.status(404).json({ success: false, error: error.message })
+    } else {
+      res.status(500).json({ success: false, error: error.message })
+    }
+  }
+}
+
+export function getFollowupStats(req: Request, res: Response): void {
+  try {
+    const { dateFrom, dateTo } = req.query
+    const stats = appointmentService.getFollowupStats(
+      dateFrom as string | undefined,
+      dateTo as string | undefined
+    )
+    res.json({ success: true, data: stats })
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+}

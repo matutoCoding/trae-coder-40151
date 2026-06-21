@@ -70,6 +70,15 @@ interface TimeSlot {
   chairName: string
 }
 
+interface AppointmentLog {
+  id: number
+  appointmentId: number
+  action: string
+  remark: string | null
+  operator: string
+  createdAt: string
+}
+
 interface AppState {
   queue: QueueEntry[]
   priorityQueue: QueueEntry[]
@@ -77,6 +86,7 @@ interface AppState {
   chairs: DentalChair[]
   appointments: Appointment[]
   followups: Appointment[]
+  patients: Patient[]
   loading: boolean
   error: string | null
 
@@ -91,6 +101,7 @@ interface AppState {
   promoteEntry: (id: number, type: string, targetPosition?: number) => Promise<void>
   repositionEntry: (id: number, newPosition: number) => Promise<void>
 
+  fetchPatients: () => Promise<void>
   fetchChairs: () => Promise<void>
   createChair: (name: string, location: string) => Promise<void>
   updateChair: (id: number, name: string, location: string) => Promise<void>
@@ -109,6 +120,7 @@ interface AppState {
   checkConflict: (chairId: number, date: string, startTime: string, endTime: string, excludeId?: number) => Promise<{ hasConflict: boolean; conflicts: ConflictDetail[]; suggestions: TimeSlot[] }>
   getSuggestions: (chairId: number, date: string, duration: number) => Promise<TimeSlot[]>
   getAppointmentById: (id: number) => Promise<Appointment | null>
+  fetchAppointmentLogs: (id: number) => Promise<AppointmentLog[]>
 
   clearError: () => void
 }
@@ -118,6 +130,7 @@ export type {
   QueueEntry,
   DentalChair,
   Appointment,
+  AppointmentLog,
   ConflictDetail,
   TimeSlot,
 }
@@ -185,6 +198,26 @@ function mapAppointment(raw: any): Appointment {
   }
 }
 
+function mapPatient(raw: any): Patient {
+  return {
+    id: raw.id,
+    name: raw.name || raw.patient_name || raw.patientName,
+    phone: raw.phone || raw.patient_phone || raw.patientPhone,
+    type: raw.type || raw.patient_type || 'normal',
+  }
+}
+
+function mapAppointmentLog(raw: any): AppointmentLog {
+  return {
+    id: raw.id,
+    appointmentId: raw.appointment_id ?? raw.appointmentId,
+    action: raw.action,
+    remark: raw.remark ?? null,
+    operator: raw.operator || '前台',
+    createdAt: raw.created_at || raw.createdAt,
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   queue: [],
   priorityQueue: [],
@@ -192,6 +225,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   chairs: [],
   appointments: [],
   followups: [],
+  patients: [],
   loading: false,
   error: null,
 
@@ -311,6 +345,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().fetchQueue()
     } catch (e: any) {
       set({ error: e.message, loading: false })
+    }
+  },
+
+  fetchPatients: async () => {
+    try {
+      const data = await apiFetch<{ data: any[] }>('/api/patients')
+      set({ patients: data.data.map(mapPatient) })
+    } catch (e: any) {
+      set({ error: e.message })
     }
   },
 
@@ -536,6 +579,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e: any) {
       set({ error: e.message, loading: false })
       return null
+    }
+  },
+
+  fetchAppointmentLogs: async (id) => {
+    try {
+      const data = await apiFetch<{ data: any[] }>(`/api/appointments/${id}/logs`)
+      return data.data.map(mapAppointmentLog)
+    } catch (e: any) {
+      set({ error: e.message })
+      return []
     }
   },
 

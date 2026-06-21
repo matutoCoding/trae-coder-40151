@@ -2,6 +2,7 @@ import * as appointmentRepo from '../repositories/appointmentRepository.js'
 import * as patientRepo from '../repositories/patientRepository.js'
 import * as queueRepo from '../repositories/queueRepository.js'
 import * as conflictService from './conflictService.js'
+import type { AppointmentLog } from '../repositories/appointmentRepository.js'
 
 function parseTime(timeStr: string): number {
   const [h, m] = timeStr.split(':').map(Number)
@@ -65,7 +66,9 @@ export function createAppointment(
     throw new Error(`时间冲突: ${details}`)
   }
 
-  return appointmentRepo.createAppointment(chairId, resolvedPatientId!, date, startTime, endTime, type)
+  const appointment = appointmentRepo.createAppointment(chairId, resolvedPatientId!, date, startTime, endTime, type)
+  appointmentRepo.addAppointmentLog(appointment.id, '创建预约')
+  return appointment
 }
 
 export function getAppointments(date?: string, chairId?: number) {
@@ -83,7 +86,9 @@ export function cancelAppointment(id: number) {
   if (!appointment) throw new Error('预约不存在')
   if (appointment.status === 'cancelled') throw new Error('预约已取消')
   if (appointment.status === 'completed') throw new Error('预约已完成，无法取消')
-  return appointmentRepo.updateAppointmentStatus(id, 'cancelled')
+  const result = appointmentRepo.updateAppointmentStatus(id, 'cancelled')
+  appointmentRepo.addAppointmentLog(id, '取消预约')
+  return result
 }
 
 export function completeAppointment(id: number) {
@@ -92,7 +97,9 @@ export function completeAppointment(id: number) {
   if (appointment.status !== 'scheduled' && appointment.status !== 'in_progress') {
     throw new Error('预约状态无法完成')
   }
-  return appointmentRepo.updateAppointmentStatus(id, 'completed')
+  const result = appointmentRepo.updateAppointmentStatus(id, 'completed')
+  appointmentRepo.addAppointmentLog(id, '完成就诊')
+  return result
 }
 
 export function createFollowup(
@@ -119,7 +126,7 @@ export function createFollowup(
     throw new Error(`时间冲突: ${details}`)
   }
 
-  return appointmentRepo.createAppointment(
+  const appointment = appointmentRepo.createAppointment(
     chairId,
     patient.id,
     date,
@@ -128,23 +135,41 @@ export function createFollowup(
     'followup',
     previousQueueId
   )
+  appointmentRepo.addAppointmentLog(appointment.id, '创建复诊')
+  return appointment
 }
 
 export function markReminded(id: number, result?: string) {
   const appointment = appointmentRepo.getAppointmentById(id)
   if (!appointment) throw new Error('预约不存在')
   const now = new Date().toISOString()
-  return appointmentRepo.updateAppointmentReminder(id, 'reminded', now, result)
+  const resultAppt = appointmentRepo.updateAppointmentReminder(id, 'reminded', now, result)
+  appointmentRepo.addAppointmentLog(id, '标记已提醒', result)
+  return resultAppt
 }
 
 export function markNoShow(id: number, reason?: string) {
   const appointment = appointmentRepo.getAppointmentById(id)
   if (!appointment) throw new Error('预约不存在')
-  return appointmentRepo.updateAppointmentReminder(id, 'no_show', undefined, undefined, reason)
+  const resultAppt = appointmentRepo.updateAppointmentReminder(id, 'no_show', undefined, undefined, reason)
+  appointmentRepo.addAppointmentLog(id, '标记未到诊', reason)
+  return resultAppt
 }
 
 export function markRescheduled(id: number, result?: string) {
   const appointment = appointmentRepo.getAppointmentById(id)
   if (!appointment) throw new Error('预约不存在')
-  return appointmentRepo.updateAppointmentReminder(id, 'rescheduled', undefined, result)
+  const resultAppt = appointmentRepo.updateAppointmentReminder(id, 'rescheduled', undefined, result)
+  appointmentRepo.addAppointmentLog(id, '标记已改约', result)
+  return resultAppt
+}
+
+export function getAppointmentLogs(id: number): AppointmentLog[] {
+  const appointment = appointmentRepo.getAppointmentById(id)
+  if (!appointment) throw new Error('预约不存在')
+  return appointmentRepo.getLogsByAppointmentId(id)
+}
+
+export function getFollowupStats(dateFrom?: string, dateTo?: string) {
+  return appointmentRepo.getFollowupStats(dateFrom, dateTo)
 }

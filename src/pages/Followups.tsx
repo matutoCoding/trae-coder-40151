@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Stethoscope, RefreshCw, Search, Calendar, Clock, MapPin, User, Phone, CheckCircle, XCircle, X, Plus, CalendarDays, Bell, AlertTriangle, RotateCcw, MessageSquare } from 'lucide-react'
+import { Stethoscope, RefreshCw, Search, Calendar, Clock, MapPin, User, Phone, CheckCircle, XCircle, X, Plus, CalendarDays, Bell, AlertTriangle, RotateCcw, MessageSquare, CalendarRange, XOctagon, TrendingUp, ListTodo } from 'lucide-react'
 import { useAppStore, type Appointment } from '@/store'
 
 function addDays(date: Date, days: number): string {
@@ -30,6 +30,29 @@ function formatDateTime(isoStr: string | null | undefined): string {
 
 const today = new Date().toISOString().split('T')[0]
 
+function getWeekRange(): { start: string; end: string } {
+  const now = new Date()
+  const day = now.getDay()
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+  const monday = new Date(now.setDate(diff))
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return {
+    start: monday.toISOString().split('T')[0],
+    end: sunday.toISOString().split('T')[0],
+  }
+}
+
+function getMonthRange(): { start: string; end: string } {
+  const now = new Date()
+  const first = new Date(now.getFullYear(), now.getMonth(), 1)
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return {
+    start: first.toISOString().split('T')[0],
+    end: last.toISOString().split('T')[0],
+  }
+}
+
 const patientTypeBadge: Record<string, { text: string; cls: string }> = {
   vip: { text: 'VIP', cls: 'bg-warning-50 text-warning' },
   emergency: { text: '急诊', cls: 'bg-danger-50 text-danger' },
@@ -57,12 +80,23 @@ const prevTypeLabels: Record<string, string> = {
 
 type QuickFilterType = 'all' | 'today_remind' | 'today_arrive'
 type ActionModalType = 'reminded' | 'no_show' | 'rescheduled' | null
+type SummaryPeriod = 'week' | 'month'
+type MetricType = 'all' | 'appointments' | 'completed' | 'no_show' | 'rescheduled' | 'arrival_rate'
+type QueueTabType = 'pending' | 'reminded' | 'no_show' | 'rescheduled' | 'all'
 
 const actionModalConfig: Record<string, { title: string; icon: any; color: string; label: string; placeholder: string }> = {
   reminded: { title: '标记已提醒', icon: Bell, color: 'primary', label: '提醒结果(可选)', placeholder: '例如:已电话确认,患者表示会准时到诊' },
   no_show: { title: '标记未到诊', icon: AlertTriangle, color: 'danger', label: '未到诊原因(可选)', placeholder: '例如:联系不上患者,电话无人接听' },
   rescheduled: { title: '标记已改约', icon: RotateCcw, color: 'warning', label: '改约备注(可选)', placeholder: '例如:患者改约至下周三下午' },
 }
+
+const queueTabs: { value: QueueTabType; label: string; icon: any }[] = [
+  { value: 'pending', label: '待提醒', icon: Bell },
+  { value: 'reminded', label: '已提醒待到诊', icon: CheckCircle },
+  { value: 'no_show', label: '未到诊', icon: AlertTriangle },
+  { value: 'rescheduled', label: '已改约', icon: RotateCcw },
+  { value: 'all', label: '全部历史', icon: ListTodo },
+]
 
 export default function Followups() {
   const {
@@ -92,6 +126,9 @@ export default function Followups() {
   const [actionModal, setActionModal] = useState<ActionModalType>(null)
   const [actionTarget, setActionTarget] = useState<Appointment | null>(null)
   const [actionInput, setActionInput] = useState('')
+  const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>('week')
+  const [activeMetric, setActiveMetric] = useState<MetricType>('all')
+  const [activeTab, setActiveTab] = useState<QueueTabType>('pending')
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -105,8 +142,64 @@ export default function Followups() {
 
   const availableFollowupChairs = useMemo(() => chairs.filter(c => c.status !== 'maintenance'), [chairs])
 
+  const periodRange = useMemo(() => {
+    return summaryPeriod === 'week' ? getWeekRange() : getMonthRange()
+  }, [summaryPeriod])
+
+  const periodFollowups = useMemo(() => {
+    return followups.filter(f => f.appointmentDate >= periodRange.start && f.appointmentDate <= periodRange.end)
+  }, [followups, periodRange])
+
+  const summaryStats = useMemo(() => {
+    const total = periodFollowups.length
+    const completed = periodFollowups.filter(f => f.status === 'completed').length
+    const noShow = periodFollowups.filter(f => f.reminderStatus === 'no_show').length
+    const rescheduled = periodFollowups.filter(f => f.reminderStatus === 'rescheduled').length
+    const cancelled = periodFollowups.filter(f => f.status === 'cancelled').length
+    const denominator = total - cancelled
+    const arrivalRate = denominator > 0 ? ((completed / denominator) * 100).toFixed(1) + '%' : '0%'
+    return { total, completed, noShow, rescheduled, arrivalRate }
+  }, [periodFollowups])
+
+  const tabCounts = useMemo(() => {
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    return {
+      pending: followups.filter(f => f.reminderStatus === 'pending' && f.status === 'scheduled' && (f.appointmentDate > todayStr || (f.appointmentDate === todayStr && f.startTime >= nowTime))).length,
+      reminded: followups.filter(f => f.reminderStatus === 'reminded' && f.status === 'scheduled').length,
+      no_show: followups.filter(f => f.reminderStatus === 'no_show').length,
+      rescheduled: followups.filter(f => f.reminderStatus === 'rescheduled').length,
+      all: followups.length,
+    }
+  }, [followups])
+
   const filteredFollowups = useMemo(() => {
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
     return followups.filter((f) => {
+      if (activeTab === 'pending') {
+        if (f.reminderStatus !== 'pending' || f.status !== 'scheduled') return false
+        if (f.appointmentDate < todayStr) return false
+        if (f.appointmentDate === todayStr && f.startTime < nowTime) return false
+      } else if (activeTab === 'reminded') {
+        if (f.reminderStatus !== 'reminded' || f.status !== 'scheduled') return false
+      } else if (activeTab === 'no_show') {
+        if (f.reminderStatus !== 'no_show') return false
+      } else if (activeTab === 'rescheduled') {
+        if (f.reminderStatus !== 'rescheduled') return false
+      }
+
+      if (activeMetric === 'completed' || activeMetric === 'arrival_rate') {
+        if (f.status !== 'completed') return false
+      } else if (activeMetric === 'no_show') {
+        if (f.reminderStatus !== 'no_show') return false
+      } else if (activeMetric === 'rescheduled') {
+        if (f.reminderStatus !== 'rescheduled') return false
+      }
+
       if (quickFilter === 'today_remind') {
         if (f.appointmentDate !== today || f.status === 'cancelled' || f.reminderStatus === 'reminded') return false
       }
@@ -122,7 +215,7 @@ export default function Followups() {
       if (statusFilter !== 'all' && f.status !== statusFilter) return false
       return true
     })
-  }, [followups, search, dateFrom, dateTo, statusFilter, quickFilter])
+  }, [followups, search, dateFrom, dateTo, statusFilter, quickFilter, activeTab, activeMetric])
 
   const openFollowupModal = (followup: Appointment) => {
     const now = new Date()
@@ -218,6 +311,18 @@ export default function Followups() {
       </div>
     )
   }
+
+  const handleMetricClick = (metric: MetricType) => {
+    setActiveMetric(activeMetric === metric ? 'all' : metric)
+  }
+
+  const metricCards = [
+    { key: 'appointments' as MetricType, label: '复诊预约数', value: summaryStats.total, icon: CalendarDays, color: 'primary', bg: 'bg-primary/10', text: 'text-primary' },
+    { key: 'completed' as MetricType, label: '到诊数', value: summaryStats.completed, icon: CheckCircle, color: 'success', bg: 'bg-success/10', text: 'text-success' },
+    { key: 'no_show' as MetricType, label: '爽约数', value: summaryStats.noShow, icon: XOctagon, color: 'danger', bg: 'bg-danger/10', text: 'text-danger' },
+    { key: 'rescheduled' as MetricType, label: '改约数', value: summaryStats.rescheduled, icon: RotateCcw, color: 'warning', bg: 'bg-warning/10', text: 'text-warning' },
+    { key: 'arrival_rate' as MetricType, label: '到诊率', value: summaryStats.arrivalRate, icon: TrendingUp, color: 'success', bg: 'bg-success/10', text: 'text-success' },
+  ]
 
   const actionCfg = actionModal ? actionModalConfig[actionModal] : null
   const ActionIcon = actionCfg?.icon
@@ -342,6 +447,53 @@ export default function Followups() {
         </button>
       </div>
 
+      <div className="bg-white rounded-xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-[var(--color-text)] flex items-center gap-1.5">
+            <CalendarRange className="w-4 h-4 text-primary" />
+            经营汇总
+          </h3>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+            <button onClick={() => setSummaryPeriod('week')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${summaryPeriod === 'week' ? 'bg-white text-primary shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'}`}>
+              本周
+            </button>
+            <button onClick={() => setSummaryPeriod('month')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${summaryPeriod === 'month' ? 'bg-white text-primary shadow-sm' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'}`}>
+              本月
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {metricCards.map((card) => {
+            const IconComp = card.icon
+            const isActive = activeMetric === card.key
+            return (
+              <button
+                key={card.key}
+                onClick={() => handleMetricClick(card.key)}
+                className={`p-3 rounded-xl border-2 transition-all text-left ${isActive ? 'border-primary bg-primary/5 shadow-sm' : 'border-transparent bg-gray-50 hover:bg-gray-100'}`}
+              >
+                <div className={`w-8 h-8 rounded-lg ${card.bg} flex items-center justify-center mb-2`}>
+                  <IconComp className={`w-4 h-4 ${card.text}`} />
+                </div>
+                <div className="text-2xl font-bold text-[var(--color-text)]">{card.value}</div>
+                <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{card.label}</div>
+              </button>
+            )
+          })}
+        </div>
+        {activeMetric !== 'all' && (
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-xs text-[var(--color-text-secondary)]">已筛选:</span>
+            <span className="text-xs px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
+              {metricCards.find(c => c.key === activeMetric)?.label}
+            </span>
+            <button onClick={() => setActiveMetric('all')} className="text-xs text-[var(--color-text-secondary)] hover:text-danger">
+              清除筛选
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
         <div>
           <label className="text-xs text-[var(--color-text-secondary)] mb-1 block">快捷筛选</label>
@@ -380,6 +532,26 @@ export default function Followups() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="flex gap-1 bg-white rounded-xl p-1.5 shadow-sm overflow-x-auto">
+        {queueTabs.map((tab) => {
+          const TabIcon = tab.icon
+          const count = tabCounts[tab.value]
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              className={`flex-1 min-w-[90px] px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${activeTab === tab.value ? 'bg-primary text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-gray-100'}`}
+            >
+              <TabIcon className="w-3.5 h-3.5" />
+              <span className="whitespace-nowrap">{tab.label}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${activeTab === tab.value ? 'bg-white/20 text-white' : 'bg-gray-200 text-[var(--color-text-secondary)]'}`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {filteredFollowups.length === 0 ? (

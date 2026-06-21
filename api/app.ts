@@ -15,6 +15,7 @@ import queueRoutes from './routes/queue.js'
 import chairRoutes from './routes/chairs.js'
 import appointmentRoutes from './routes/appointments.js'
 import conflictRoutes from './routes/conflicts.js'
+import patientRoutes from './routes/patients.js'
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
@@ -36,6 +37,7 @@ app.use('/api/queue', queueRoutes)
 app.use('/api/chairs', chairRoutes)
 app.use('/api/appointments', appointmentRoutes)
 app.use('/api/conflicts', conflictRoutes)
+app.use('/api/patients', patientRoutes)
 
 /**
  * health

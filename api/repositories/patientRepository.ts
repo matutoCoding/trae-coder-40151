@@ -48,3 +48,34 @@ export function findPatientByPhone(phone: string): Patient | undefined {
   const db = getDb()
   return db.prepare('SELECT * FROM patients WHERE phone = ?').get(phone) as Patient | undefined
 }
+
+export function searchPatients(keyword: string): Patient[] {
+  const db = getDb()
+  return db.prepare(`
+    SELECT * FROM patients
+    WHERE name LIKE ? OR phone LIKE ?
+    ORDER BY created_at DESC
+  `).all(`%${keyword}%`, `%${keyword}%`) as Patient[]
+}
+
+export function getPatientAppointments(patientId: number) {
+  const db = getDb()
+  return db.prepare(`
+    SELECT a.*, c.name as chair_name, c.location as chair_location
+    FROM appointments a
+    JOIN dental_chairs c ON a.chair_id = c.id
+    WHERE a.patient_id = ?
+    ORDER BY a.appointment_date DESC, a.start_time DESC
+  `).all(patientId)
+}
+
+export function getPatientQueueEntries(patientId: number) {
+  const db = getDb()
+  return db.prepare(`
+    SELECT q.*, c.name as chair_name, c.location as chair_location
+    FROM queue_entries q
+    LEFT JOIN dental_chairs c ON q.chair_id = c.id
+    WHERE q.patient_id = ?
+    ORDER BY q.created_at DESC
+  `).all(patientId)
+}

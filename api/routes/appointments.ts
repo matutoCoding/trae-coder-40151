@@ -4,7 +4,9 @@ import * as appointmentCtrl from '../controllers/appointmentController.js'
 const router = Router()
 
 router.get('/', appointmentCtrl.getAppointments)
+router.get('/stats/followup', appointmentCtrl.getFollowupStats)
 router.get('/:id', appointmentCtrl.getAppointmentById)
+router.get('/:id/logs', appointmentCtrl.getAppointmentLogs)
 router.post('/', appointmentCtrl.createAppointment)
 router.patch('/:id/cancel', appointmentCtrl.cancelAppointment)
 router.patch('/:id/complete', appointmentCtrl.completeAppointment)

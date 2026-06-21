@@ -1,75 +1,19 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Stethoscope, BarChart3 } from 'lucide-react'
-import { useAppStore, type Appointment, type DentalChair } from '@/store'
+import { Calendar, Plus, Clock, X, User, Phone, MapPin, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Stethoscope, BarChart3, Trophy, ListTodo } from 'lucide-react'
+import { useAppStore, type Appointment, type DentalChair, type AppointmentLog } from '@/store'
 
-function add30Minutes(time: string): string {
-  const [h, m] = time.split(':').map(Number)
-  const total = h * 60 + m + 30
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-}
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(':').map(Number)
-  return h * 60 + m
-}
-
-function getTimeSlots(): string[] {
-  const slots: string[] = []
-  for (let h = 8; h < 18; h++) {
-    slots.push(`${String(h).padStart(2, '0')}:00`)
-    slots.push(`${String(h).padStart(2, '0')}:30`)
-  }
-  return slots
-}
-
-function formatDate(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
-
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return formatDate(d)
-}
-
-function getCurrentTimeRounded(): string {
-  const now = new Date()
-  const minutes = now.getMinutes()
-  const rounded = Math.ceil(minutes / 30) * 30
-  const hours = now.getHours() + Math.floor(rounded / 60)
-  const mins = rounded % 60
-  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
-}
-
-function getMinTime(date: string): string {
-  const today = formatDate(new Date())
-  if (date === today) {
-    const currentRounded = getCurrentTimeRounded()
-    return timeToMinutes(currentRounded) > timeToMinutes('08:00') ? currentRounded : '08:00'
-  }
-  return '08:00'
-}
-
-function getAppointmentTop(startTime: string): number {
-  return ((timeToMinutes(startTime) - 480) / 30) * 60
-}
-
-function getAppointmentHeight(startTime: string, endTime: string): number {
-  return ((timeToMinutes(endTime) - timeToMinutes(startTime)) / 30) * 60
-}
-
-function getWeekStart(dateStr: string): string {
-  const d = new Date(dateStr)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  return formatDate(d)
-}
-
-function getWeekDates(dateStr: string): string[] {
-  const monday = getWeekStart(dateStr)
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
-}
+const timeToMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+const minutesToTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+const add30Minutes = (t: string) => minutesToTime(timeToMinutes(t) + 30)
+const formatDate = (d: Date) => d.toISOString().split('T')[0]
+const addDays = (s: string, n: number) => { const d = new Date(s); d.setDate(d.getDate() + n); return formatDate(d) }
+const getWeekStart = (s: string) => { const d = new Date(s); const day = d.getDay(); d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day)); return formatDate(d) }
+const getWeekDates = (s: string) => Array.from({ length: 7 }, (_, i) => addDays(getWeekStart(s), i))
+const getTimeSlots = () => Array.from({ length: 20 }, (_, i) => minutesToTime(480 + i * 30))
+const getCurrentTimeRounded = () => { const n = new Date(); return minutesToTime(n.getHours() * 60 + Math.ceil(n.getMinutes() / 30) * 30) }
+const getMinTime = (d: string) => { const t = formatDate(new Date()); if (d !== t) return '08:00'; const c = getCurrentTimeRounded(); return timeToMinutes(c) > 480 ? c : '08:00' }
+const getAppointmentTop = (s: string) => ((timeToMinutes(s) - 480) / 30) * 60
+const getAppointmentHeight = (s: string, e: string) => ((timeToMinutes(e) - timeToMinutes(s)) / 30) * 60
 
 const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
@@ -94,48 +38,24 @@ const statusLabels: Record<string, { text: string; cls: string }> = {
   cancelled: { text: '已取消', cls: 'bg-danger/10 text-danger' },
 }
 
-function getLoadStyle(minutes: number) {
-  if (minutes === 0) return 'bg-gray-50 text-gray-500'
-  if (minutes > 480) return 'bg-danger/10 text-danger'
-  if (minutes >= 240) return 'bg-warning/10 text-warning'
-  return 'bg-success/10 text-success'
-}
+const getLoadStyle = (m: number) => m === 0 ? 'bg-gray-50 text-gray-500' : m > 480 ? 'bg-danger/10 text-danger' : m >= 240 ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'
 
-interface AvailableSlot {
-  startTime: string
-  endTime: string
-}
+interface AvailableSlot { startTime: string; endTime: string }
 
-function getAvailableSlots(chairAppointments: Appointment[], date: string): { morning: AvailableSlot[]; afternoon: AvailableSlot[] } {
-  const dayApts = chairAppointments.filter(a => a.appointmentDate === date && a.status !== 'cancelled')
+const getAvailableSlots = (apts: Appointment[], date: string) => {
+  const dayApts = apts.filter(a => a.appointmentDate === date && a.status !== 'cancelled')
   const allSlots = getTimeSlots()
-  const busySlots = new Set<string>()
-
+  const busy = new Set<string>()
   dayApts.forEach(apt => {
-    const startMin = timeToMinutes(apt.startTime)
-    const endMin = timeToMinutes(apt.endTime)
-    allSlots.forEach(slot => {
-      const slotMin = timeToMinutes(slot)
-      if (slotMin >= startMin && slotMin < endMin) {
-        busySlots.add(slot)
-      }
-    })
+    const s = timeToMinutes(apt.startTime), e = timeToMinutes(apt.endTime)
+    allSlots.forEach(slot => { const m = timeToMinutes(slot); if (m >= s && m < e) busy.add(slot) })
   })
-
-  const freeSlots = allSlots.filter(slot => !busySlots.has(slot) && timeToMinutes(slot) < timeToMinutes('18:00'))
-
-  const morning: AvailableSlot[] = []
-  const afternoon: AvailableSlot[] = []
-
-  freeSlots.forEach(slot => {
-    const slotItem = { startTime: slot, endTime: add30Minutes(slot) }
-    if (timeToMinutes(slot) < timeToMinutes('12:00')) {
-      morning.push(slotItem)
-    } else {
-      afternoon.push(slotItem)
-    }
+  const free = allSlots.filter(s => !busy.has(s) && timeToMinutes(s) < 1080)
+  const morning: AvailableSlot[] = [], afternoon: AvailableSlot[] = []
+  free.forEach(s => {
+    const item = { startTime: s, endTime: add30Minutes(s) }
+    timeToMinutes(s) < 720 ? morning.push(item) : afternoon.push(item)
   })
-
   return { morning, afternoon }
 }
 
@@ -143,12 +63,15 @@ export default function Schedule() {
   const {
     chairs,
     appointments,
+    patients,
     error,
     fetchChairs,
     fetchAppointments,
+    fetchPatients,
     createAppointment,
     cancelAppointment,
     getAppointmentById,
+    fetchAppointmentLogs,
     createChair,
     clearError,
   } = useAppStore()
@@ -159,25 +82,21 @@ export default function Schedule() {
   const [showDetail, setShowDetail] = useState(false)
   const [showChairForm, setShowChairForm] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+  const [appointmentLogs, setAppointmentLogs] = useState<AppointmentLog[]>([])
   const [chairForm, setChairForm] = useState({ name: '', location: '' })
-  const [form, setForm] = useState({
-    chairId: 0,
-    patientName: '',
-    patientPhone: '',
-    date: selectedDate,
-    startTime: '09:00',
-    endTime: '09:30',
-    type: 'normal' as 'normal' | 'vip' | 'emergency' | 'followup',
-  })
+  const [form, setForm] = useState({ chairId: 0, patientName: '', patientPhone: '', date: selectedDate, startTime: '09:00', endTime: '09:30', type: 'normal' as 'normal' | 'vip' | 'emergency' | 'followup' })
   const [timeError, setTimeError] = useState<string | null>(null)
   const [formSubmitError, setFormSubmitError] = useState<string | null>(null)
   const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set())
+  const [rankSortBy, setRankSortBy] = useState<'utilization' | 'count'>('utilization')
+  const [patientSearchQuery, setPatientSearchQuery] = useState('')
+  const [matchedPatient, setMatchedPatient] = useState<any>(null)
+  const [showPatientDropdown, setShowPatientDropdown] = useState(false)
 
   const timeSlots = useMemo(() => getTimeSlots(), [])
   const availableChairs = useMemo(() => chairs.filter(c => c.status !== 'maintenance'), [chairs])
   const today = formatDate(new Date())
   const minTime = getMinTime(form.date)
-  const maxTime = '18:00'
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate])
   const weekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate])
   const thisWeekStart = useMemo(() => getWeekStart(today), [today])
@@ -187,6 +106,20 @@ export default function Schedule() {
   }, [form.startTime, form.endTime])
 
   useEffect(() => { fetchChairs() }, [fetchChairs])
+  useEffect(() => { fetchPatients() }, [fetchPatients])
+
+  const searchResults = useMemo(() => {
+    if (!patientSearchQuery.trim()) return []
+    const q = patientSearchQuery.toLowerCase()
+    return patients.filter(p => p.phone.includes(q) || p.name.toLowerCase().includes(q)).slice(0, 5)
+  }, [patients, patientSearchQuery])
+
+  const patientHistory = useMemo(() => {
+    if (!matchedPatient) return null
+    const apts = appointments.filter(a => a.patientPhone === matchedPatient.phone && a.status !== 'cancelled')
+      .sort((a, b) => new Date(b.appointmentDate).getTime() - new Date(a.appointmentDate).getTime())
+    return { lastVisit: apts[0] || null, followupCount: apts.filter(a => a.type === 'followup').length, totalVisits: apts.length }
+  }, [matchedPatient, appointments])
 
   useEffect(() => {
     if (viewMode === 'day') {
@@ -216,6 +149,9 @@ export default function Schedule() {
     })
     setFormSubmitError(null)
     clearError()
+    setPatientSearchQuery('')
+    setMatchedPatient(null)
+    setShowPatientDropdown(false)
     setShowForm(true)
   }
 
@@ -229,6 +165,33 @@ export default function Schedule() {
       }
       return next
     })
+  }
+
+  const handlePatientSearchChange = (value: string) => {
+    setPatientSearchQuery(value)
+    if (!value.trim()) {
+      setMatchedPatient(null)
+      setForm({ ...form, patientName: '', patientPhone: '' })
+      setShowPatientDropdown(false)
+      return
+    }
+    setShowPatientDropdown(true)
+    const exactMatch = patients.find(p => p.phone === value)
+    if (exactMatch) {
+      setMatchedPatient(exactMatch)
+      setForm({ ...form, patientName: exactMatch.name, patientPhone: exactMatch.phone })
+      setShowPatientDropdown(false)
+    } else {
+      setMatchedPatient(null)
+      setForm({ ...form, patientPhone: value })
+    }
+  }
+
+  const handleSelectPatient = (patient: any) => {
+    setMatchedPatient(patient)
+    setPatientSearchQuery(patient.phone)
+    setForm({ ...form, patientName: patient.name, patientPhone: patient.phone })
+    setShowPatientDropdown(false)
   }
 
   const handleCellClick = (chair: DentalChair, time: string) => {
@@ -253,6 +216,8 @@ export default function Schedule() {
     if (detail) {
       setSelectedAppointment(detail)
       setShowDetail(true)
+      const logs = await fetchAppointmentLogs(apt.id)
+      setAppointmentLogs(logs)
     }
   }
 
@@ -301,22 +266,63 @@ export default function Schedule() {
 
   const getSelectedChair = () => chairs.find(c => c.id === form.chairId)
 
-  const getChairStats = (chair: DentalChair) => {
-    return weekDates.map(date => {
-      const dayApts = getAppointmentsForChairAndDate(chair.id, date)
-      const bookedMinutes = dayApts.reduce((sum, a) => sum + (timeToMinutes(a.endTime) - timeToMinutes(a.startTime)), 0)
-      const followupCount = dayApts.filter(a => a.type === 'followup').length
-      const totalCount = dayApts.length
-      const followupRatio = totalCount > 0 ? Math.round((followupCount / totalCount) * 100) : 0
+  const getChairStats = (chair: DentalChair) => weekDates.map(date => {
+    const dayApts = getAppointmentsForChairAndDate(chair.id, date)
+    const bookedMinutes = dayApts.reduce((sum, a) => sum + (timeToMinutes(a.endTime) - timeToMinutes(a.startTime)), 0)
+    const followupCount = dayApts.filter(a => a.type === 'followup').length
+    const totalCount = dayApts.length
+    return {
+      date,
+      count: totalCount,
+      bookedMinutes,
+      freeMinutes: 600 - bookedMinutes,
+      followupRatio: totalCount > 0 ? Math.round((followupCount / totalCount) * 100) : 0,
+    }
+  })
+
+  const renderTimeSlots = (slots: AvailableSlot[], prefix: string, chair: DentalChair, date: string) => (
+    <div className="flex flex-wrap gap-1">
+      {slots.map((slot) => (
+        <button
+          key={`${prefix}-${slot.startTime}`}
+          onClick={(e) => { e.stopPropagation(); openFormForCell(chair, date, slot.startTime, slot.endTime) }}
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success hover:bg-success hover:text-white transition-colors"
+        >
+          {slot.startTime}
+        </button>
+      ))}
+    </div>
+  )
+
+  const getUtilizationRanking = useMemo(() => {
+    const totalAvailableMinutes = 480 * 7
+    return availableChairs.map(chair => {
+      const weekApts = appointments.filter(a => a.chairId === chair.id && weekDates.includes(a.appointmentDate))
+      const nonCancelledApts = weekApts.filter(a => a.status !== 'cancelled')
+      const totalOccupiedMinutes = nonCancelledApts.reduce((sum, a) => sum + (timeToMinutes(a.endTime) - timeToMinutes(a.startTime)), 0)
+      const utilization = totalAvailableMinutes > 0 ? Math.round((totalOccupiedMinutes / totalAvailableMinutes) * 100) : 0
+      const followupCount = nonCancelledApts.filter(a => a.type === 'followup').length
+      const normalCount = nonCancelledApts.filter(a => a.type === 'normal' || a.type === 'vip' || a.type === 'emergency').length
+      const cancelledCount = weekApts.filter(a => a.status === 'cancelled').length
+      const totalCount = nonCancelledApts.length
       return {
-        date,
-        count: totalCount,
-        bookedMinutes,
-        freeMinutes: 600 - bookedMinutes,
-        followupRatio,
+        chairId: chair.id,
+        chairName: chair.name,
+        chairLocation: chair.location,
+        utilization,
+        totalOccupiedMinutes,
+        followupCount,
+        normalCount,
+        cancelledCount,
+        totalCount,
       }
+    }).sort((a, b) => {
+      if (rankSortBy === 'utilization') {
+        return b.utilization - a.utilization
+      }
+      return b.totalCount - a.totalCount
     })
-  }
+  }, [appointments, availableChairs, weekDates, rankSortBy])
 
   const renderDayView = () => (
     <div className="flex-1 bg-white rounded-xl shadow-sm overflow-hidden flex flex-col">
@@ -352,11 +358,7 @@ export default function Schedule() {
                       <div
                         key={`${chair.id}-${time}`}
                         onClick={() => !isPast && handleCellClick(chair, time)}
-                        className={`h-[60px] border-b border-gray-100 transition-colors ${
-                          isPast
-                            ? 'bg-gray-50 cursor-not-allowed'
-                            : 'hover:bg-primary/5 cursor-pointer'
-                        }`}
+                        className={`h-[60px] border-b border-gray-100 transition-colors ${isPast ? 'bg-gray-50 cursor-not-allowed' : 'hover:bg-primary/5 cursor-pointer'}`}
                       />
                     )
                   })}
@@ -382,6 +384,61 @@ export default function Schedule() {
             })}
           </div>
         </div>
+      </div>
+    </div>
+  )
+
+  const rankBadgeColors = ['bg-yellow-400', 'bg-gray-400', 'bg-amber-600']
+
+  const renderUtilizationRanking = () => (
+    <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-primary" />
+          <h3 className="font-semibold text-gray-800">利用率排行</h3>
+        </div>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+          {(['utilization', 'count'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setRankSortBy(mode)}
+              className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${rankSortBy === mode ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {mode === 'utilization' ? '利用率' : '预约量'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {getUtilizationRanking.map((item, i) => (
+          <div key={item.chairId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white ${rankBadgeColors[i] || 'bg-gray-200 text-gray-600'}`}>
+              {i + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium text-gray-800 text-sm">{item.chairName}</span>
+                <span className="text-xs text-gray-500">· {item.chairLocation}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${item.utilization >= 80 ? 'bg-danger' : item.utilization >= 50 ? 'bg-warning' : 'bg-success'}`}
+                    style={{ width: `${Math.min(item.utilization, 100)}%` }}
+                  />
+                </div>
+                <span className="text-sm font-bold text-gray-700 w-12 text-right">
+                  {rankSortBy === 'utilization' ? `${item.utilization}%` : `${item.totalCount}单`}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success" />复诊 {item.followupCount}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary" />普通 {item.normalCount}</span>
+                {item.cancelledCount > 0 && <span className="text-danger">取消 {item.cancelledCount}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -432,33 +489,13 @@ export default function Schedule() {
                           {morning.length > 0 && (
                             <div>
                               <div className="text-[10px] font-medium text-gray-600 mb-1">上午 08:00-12:00</div>
-                              <div className="flex flex-wrap gap-1">
-                                {morning.map((slot) => (
-                                  <button
-                                    key={`m-${slot.startTime}`}
-                                    onClick={(e) => { e.stopPropagation(); openFormForCell(chair, stat.date, slot.startTime, slot.endTime) }}
-                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success hover:bg-success hover:text-white transition-colors"
-                                  >
-                                    {slot.startTime}
-                                  </button>
-                                ))}
-                              </div>
+                              {renderTimeSlots(morning, 'm', chair, stat.date)}
                             </div>
                           )}
                           {afternoon.length > 0 && (
                             <div>
                               <div className="text-[10px] font-medium text-gray-600 mb-1">下午 12:00-18:00</div>
-                              <div className="flex flex-wrap gap-1">
-                                {afternoon.map((slot) => (
-                                  <button
-                                    key={`a-${slot.startTime}`}
-                                    onClick={(e) => { e.stopPropagation(); openFormForCell(chair, stat.date, slot.startTime, slot.endTime) }}
-                                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success hover:bg-success hover:text-white transition-colors"
-                                  >
-                                    {slot.startTime}
-                                  </button>
-                                ))}
-                              </div>
+                              {renderTimeSlots(afternoon, 'a', chair, stat.date)}
                             </div>
                           )}
                           {morning.length === 0 && afternoon.length === 0 && (
@@ -539,10 +576,15 @@ export default function Schedule() {
 
   const renderWeekView = () => (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div style={{ height: '40%' }} className="flex-shrink-0 overflow-auto">
-        {renderWeekStats()}
+      <div className="flex gap-4 flex-shrink-0 overflow-auto">
+        <div className="flex-1 min-w-0">
+          {renderWeekStats()}
+        </div>
+        <div className="w-80 flex-shrink-0">
+          {renderUtilizationRanking()}
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0 mt-4">
         {renderWeekGrid()}
       </div>
     </div>
@@ -634,16 +676,93 @@ export default function Schedule() {
               </button>
             </div>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">患者姓名</label>
-                  <input type="text" value={form.patientName} onChange={(e) => setForm({ ...form, patientName: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder="请输入姓名" />
+              <div className="relative">
+                <label className="text-xs text-gray-500 mb-1 block">患者搜索</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={patientSearchQuery}
+                    onChange={(e) => handlePatientSearchChange(e.target.value)}
+                    onFocus={() => patientSearchQuery && searchResults.length > 0 && setShowPatientDropdown(true)}
+                    className="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    placeholder="输入手机号或姓名搜索"
+                  />
                 </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">联系电话</label>
-                  <input type="tel" value={form.patientPhone} onChange={(e) => setForm({ ...form, patientPhone: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder="请输入电话" />
-                </div>
+                {showPatientDropdown && searchResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {searchResults.map((patient) => (
+                      <div
+                        key={patient.id}
+                        onClick={() => handleSelectPatient(patient)}
+                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      >
+                        <div className="text-sm font-medium text-gray-800">{patient.name}</div>
+                        <div className="text-xs text-gray-500">{patient.phone} · {typeLabels[patient.type] || patient.type}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {matchedPatient && (
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <User className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-800">{matchedPatient.name}</div>
+                      <div className="text-xs text-gray-500">{matchedPatient.phone}</div>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[matchedPatient.type] || typeColors.normal}`}>
+                      {typeLabels[matchedPatient.type] || matchedPatient.type}
+                    </span>
+                  </div>
+                  {patientHistory && (
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-primary/10">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-primary">{patientHistory.totalVisits}</div>
+                        <div className="text-[10px] text-gray-500">总就诊</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-success">{patientHistory.followupCount}</div>
+                        <div className="text-[10px] text-gray-500">复诊次数</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs font-medium text-gray-700 pt-1">
+                          {patientHistory.lastVisit ? patientHistory.lastVisit.appointmentDate.slice(5) : '无'}
+                        </div>
+                        <div className="text-[10px] text-gray-500">最近就诊</div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="mt-2 pt-2 border-t border-primary/10">
+                    <label className="text-xs text-gray-500 mb-1 block">患者姓名</label>
+                    <input type="text" value={form.patientName} readOnly className="w-full px-3 py-1.5 rounded-lg bg-gray-100 border border-gray-200 text-sm text-gray-600 cursor-not-allowed" />
+                  </div>
+                </div>
+              )}
+              {patientSearchQuery && !matchedPatient && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-primary" />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">新建患者</span>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">患者姓名</label>
+                      <input type="text" value={form.patientName} onChange={(e) => setForm({ ...form, patientName: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder="请输入姓名" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">联系电话</label>
+                      <input type="tel" value={form.patientPhone} onChange={(e) => setForm({ ...form, patientPhone: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" placeholder="请输入电话" />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">类型</label>
                 <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
@@ -668,7 +787,7 @@ export default function Schedule() {
                     type="time"
                     value={form.startTime}
                     min={minTime}
-                    max={maxTime}
+max="18:00"
                     onChange={(e) => handleStartTimeChange(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
@@ -679,7 +798,7 @@ export default function Schedule() {
                     type="time"
                     value={form.endTime}
                     min={minTime}
-                    max={maxTime}
+max="18:00"
                     onChange={(e) => setForm({ ...form, endTime: e.target.value })}
                     className={timeError
                       ? 'w-full px-3 py-2 rounded-lg border border-danger text-sm focus:outline-none focus:ring-2 focus:ring-danger/30 focus:border-danger'
@@ -743,6 +862,33 @@ export default function Schedule() {
                   </div>
                 </div>
               )}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="text-sm font-medium text-gray-800 flex items-center gap-1.5 mb-3">
+                  <ListTodo className="w-4 h-4 text-primary" />操作记录
+                </div>
+                {appointmentLogs.length === 0 ? (
+                  <div className="text-xs text-gray-400 text-center py-3">暂无操作记录</div>
+                ) : (
+                  <div className="space-y-3 max-h-48 overflow-y-auto">
+                    {appointmentLogs.map(log => (
+                      <div key={log.id} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className="w-2 h-2 rounded-full bg-primary mt-1.5"></div>
+                          <div className="w-px flex-1 bg-gray-200"></div>
+                        </div>
+                        <div className="flex-1 pb-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-800">{log.action}</span>
+                            <span className="text-xs text-gray-400">{log.operator}</span>
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5">{log.createdAt}</div>
+                          {log.remark && <div className="text-xs text-gray-500 mt-1">{log.remark}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {selectedAppointment.status === 'scheduled' && (
                 <button onClick={handleCancelAppointment} className="w-full py-2.5 bg-danger text-white rounded-lg text-sm font-medium hover:bg-danger/90 transition-colors">取消预约</button>
               )}
